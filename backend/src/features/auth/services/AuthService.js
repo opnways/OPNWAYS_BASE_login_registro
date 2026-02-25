@@ -56,7 +56,18 @@ export const AuthService = {
     async resetPassword(token, newPassword) {
         const hash = TokenService.hashToken(token);
         const tokenData = await AuthRepository.findPasswordResetToken(hash);
-        if (!tokenData) throw new Error('Invalid or expired reset token');
+
+        if (!tokenData) {
+            throw new Error('El enlace de recuperación es inválido o no existe.');
+        }
+
+        if (tokenData.used_at) {
+            throw new Error('Este enlace de recuperación ya ha sido utilizado.');
+        }
+
+        if (new Date(tokenData.expires_at) < new Date()) {
+            throw new Error('El enlace de recuperación ha caducado. Por favor, solicita uno nuevo.');
+        }
 
         const newHash = await argon2.hash(newPassword);
         await AuthRepository.updatePassword(tokenData.user_id, newHash);

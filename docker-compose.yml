@@ -24,6 +24,10 @@ services:
       PORT: 3000
       FRONTEND_URL: http://localhost:5173
       NODE_ENV: development
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      EMAIL_FROM: ${EMAIL_FROM:-onboarding@example.com}
     depends_on:
       - db
     volumes:
@@ -43,6 +47,13 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: auth-starter-mailhog
+    ports:
+      - "1025:1025" # SMTP port
+      - "8025:8025" # Web UI port
 
 volumes:
   postgres_data:

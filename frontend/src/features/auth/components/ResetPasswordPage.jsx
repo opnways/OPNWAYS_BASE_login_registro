@@ -27,7 +27,8 @@ export default function ResetPasswordPage() {
                 setError(res.error || 'Failed to reset password');
             }
         } catch (err) {
-            setError('An error occurred. Please try again.');
+            const backendError = err.response?.data?.error || err.message;
+            setError(backendError || 'Ha ocurrido un error. Por favor, inténtalo de nuevo.');
         } finally {
             setLoading(false);
         }
