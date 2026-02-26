@@ -12,9 +12,15 @@ const cookieOptions = {
     path: '/'
 };
 
+const passwordSchema = z.string()
+    .min(8, 'La contraseña debe tener al menos 8 caracteres')
+    .regex(/[A-Z]/, 'La contraseña debe incluir al menos una mayúscula')
+    .regex(/[0-9]/, 'La contraseña debe incluir al menos un número')
+    .regex(/[^A-Za-z0-9]/, 'La contraseña debe incluir al menos un carácter especial');
+
 const registerSchema = z.object({
-    email: z.string().email(),
-    password: z.string().min(8)
+    email: z.string().email('Email inválido'),
+    password: passwordSchema
 });
 
 router.post('/register', async (req, res) => {
@@ -106,9 +112,13 @@ router.post('/forgot', async (req, res) => {
 router.post('/reset', async (req, res) => {
     try {
         const { token, password } = req.body;
+        passwordSchema.parse(password);
         await AuthService.resetPassword(token, password);
         res.success({ message: 'Password reset successfully' });
     } catch (err) {
+        if (err instanceof z.ZodError) {
+            return res.error(err.errors[0].message);
+        }
         res.error(err.message);
     }
 });
