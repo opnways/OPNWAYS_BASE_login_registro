@@ -6,7 +6,7 @@ import { EmailSender } from './EmailSender.js';
 export const AuthService = {
     async register(email, password) {
         const existing = await AuthRepository.findUserByEmail(email);
-        if (existing) throw new Error('User already exists');
+        if (existing) throw new Error('El usuario ya existe'); // Se captura en AuthRoutes y no se expone al cliente
 
         const hash = await argon2.hash(password);
         const user = await AuthRepository.createUser(email, hash);
@@ -15,10 +15,10 @@ export const AuthService = {
 
     async login(email, password) {
         const user = await AuthRepository.findUserByEmail(email);
-        if (!user) throw new Error('Invalid credentials');
+        if (!user) throw new Error('Credenciales inválidas');
 
         const valid = await argon2.verify(user.password_hash, password);
-        if (!valid) throw new Error('Invalid credentials');
+        if (!valid) throw new Error('Credenciales inválidas');
 
         const { accessToken, refreshToken } = await TokenService.generateTokenPair(user.id);
         return { user: { id: user.id, email: user.email }, accessToken, refreshToken };
@@ -33,7 +33,7 @@ export const AuthService = {
 
     async refresh(refreshTokenHash) {
         const tokenData = await AuthRepository.findRefreshToken(refreshTokenHash);
-        if (!tokenData) throw new Error('Invalid refresh token');
+        if (!tokenData) throw new Error('Token de refresco inválido o expirado');
 
         // Revoke old token (one-time use / rotation)
         await AuthRepository.revokeRefreshToken(tokenData.id);
@@ -76,7 +76,7 @@ export const AuthService = {
 
     async getMe(userId) {
         const user = await AuthRepository.findUserById(userId);
-        if (!user) throw new Error('User not found');
+        if (!user) throw new Error('Usuario no encontrado');
         return user;
     }
 };

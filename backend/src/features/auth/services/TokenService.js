@@ -2,8 +2,15 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { AuthRepository } from '../repository/AuthRepository.js';
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'secret_access';
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'secret_refresh';
+const isProd = process.env.NODE_ENV === 'production';
+
+if (isProd && (!process.env.JWT_ACCESS_SECRET || !process.env.JWT_REFRESH_SECRET)) {
+    console.error('CRITICAL ERROR: JWT_ACCESS_SECRET or JWT_REFRESH_SECRET is missing in production environment.');
+    process.exit(1);
+}
+
+const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'dev_only_secret_access_do_not_use_in_prod';
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev_only_secret_refresh_do_not_use_in_prod';
 
 export const TokenService = {
     async generateTokenPair(userId) {

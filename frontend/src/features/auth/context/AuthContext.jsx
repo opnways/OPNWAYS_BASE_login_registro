@@ -18,15 +18,22 @@ export function AuthProvider({ children }) {
                 setUser(response.data);
             }
         } catch (err) {
-            // If unauthorized, try to refresh
-            try {
-                const refreshResponse = await authClient.refresh();
-                if (refreshResponse.success) {
-                    const retryMe = await authClient.getMe();
-                    if (retryMe.success) setUser(retryMe.data);
+            // Check if error is specifically an auth error (401/403) before refreshing
+            const status = err.response?.status || err.status;
+            if (status === 401 || status === 403 || err.message?.includes('401') || err.message?.includes('403')) {
+                try {
+                    const refreshResponse = await authClient.refresh();
+                    if (refreshResponse.success) {
+                        const retryMe = await authClient.getMe();
+                        if (retryMe.success) setUser(retryMe.data);
+                    }
+                } catch (refreshErr) {
+                    setUser(null); // Truly unauthenticated
                 }
-            } catch (refreshErr) {
-                setUser(null);
+            } else {
+                // If network error, 500, etc, keep previous state (which is null initially) 
+                // but do not overwrite to null if they had a session, or alternatively just log the error
+                console.warn('Non-auth error during checkSession:', err);
             }
         } finally {
             setLoading(false);
