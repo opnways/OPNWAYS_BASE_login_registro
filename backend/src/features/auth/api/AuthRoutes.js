@@ -1,9 +1,18 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { AuthService } from '../services/AuthService.js';
 import { TokenService } from '../services/TokenService.js';
 import { z } from 'zod';
 
 const router = express.Router();
+
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 5, // limitar a 5 solicitudes por IP
+    message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 const cookieOptions = {
     httpOnly: true,
@@ -34,7 +43,7 @@ router.post('/register', async (req, res) => {
     }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
         const { user, accessToken, refreshToken } = await AuthService.login(email, password);
@@ -99,7 +108,7 @@ router.get('/me', async (req, res) => {
     }
 });
 
-router.post('/forgot', async (req, res) => {
+router.post('/forgot', authLimiter, async (req, res) => {
     try {
         const { email } = req.body;
         await AuthService.forgotPassword(email);
@@ -109,7 +118,7 @@ router.post('/forgot', async (req, res) => {
     }
 });
 
-router.post('/reset', async (req, res) => {
+router.post('/reset', authLimiter, async (req, res) => {
     try {
         const { token, password } = req.body;
         passwordSchema.parse(password);
