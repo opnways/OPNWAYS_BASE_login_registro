@@ -4,17 +4,49 @@ import { AuthService } from '../services/AuthService.js';
 import { TokenService } from '../services/TokenService.js';
 import { z } from 'zod';
 
-import { loginAttempts, loginFailures, refreshAttempts, refreshFailures, rateLimitHits, passwordResetRequests } from '../utils/metrics.js';
+import {
+    authRequestsTotal,
+    authEndpointDurationSeconds,
+    authInternalErrorsTotal,
+    authRefreshRotationsTotal,
+    authRefreshRevocationsTotal
+} from '../utils/metrics.js';
 
 const router = express.Router();
+
+// Middleware para instrumentación de métricas
+router.use((req, res, next) => {
+    const path = req.path;
+    let endpoint = 'unknown';
+
+    if (path.startsWith('/register')) endpoint = 'register';
+    else if (path.startsWith('/login')) endpoint = 'login';
+    else if (path.startsWith('/forgot')) endpoint = 'forgot';
+    else if (path.startsWith('/reset')) endpoint = 'reset';
+    else if (path.startsWith('/refresh')) endpoint = 'refresh';
+    else if (path.startsWith('/logout')) endpoint = 'logout';
+    else if (path.startsWith('/me')) endpoint = 'me';
+
+    res.locals.authEndpoint = endpoint;
+    const startTimer = authEndpointDurationSeconds.startTimer();
+
+    res.on('finish', () => {
+        const statusCode = res.statusCode.toString();
+
+        authRequestsTotal.inc({ endpoint, status: statusCode });
+        startTimer({ endpoint, status: statusCode });
+
+        if (res.statusCode >= 500) {
+            authInternalErrorsTotal.inc({ endpoint });
+        }
+    });
+
+    next();
+});
 
 const createLimiter = (maxRequests) => rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: maxRequests,
-    handler: (req, res, next, options) => {
-        rateLimitHits.inc({ endpoint: req.baseUrl + req.path });
-        res.status(options.statusCode).json(options.message);
-    },
     message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -75,11 +107,9 @@ router.post('/register', registerLimiter, async (req, res) => {
 });
 
 router.post('/login', loginLimiter, async (req, res) => {
-    loginAttempts.inc();
     try {
         const result = loginSchema.safeParse(req.body);
         if (!result.success) {
-            loginFailures.inc({ reason: 'validation' });
             return res.error('Datos inválidos.', 400);
         }
 
@@ -91,7 +121,6 @@ router.post('/login', loginLimiter, async (req, res) => {
 
         res.success({ user });
     } catch (err) {
-        loginFailures.inc({ reason: 'auth' });
         console.error('Login error:', err.message);
         res.error(err.message, 401);
     }
@@ -103,6 +132,7 @@ router.post('/logout', async (req, res) => {
         if (refreshToken) {
             const hash = TokenService.hashToken(refreshToken);
             await AuthService.logout(hash);
+            authRefreshRevocationsTotal.inc({ reason: 'logout' });
         }
         res.clearCookie('access_token', cookieOptions);
         res.clearCookie('refresh_token', cookieOptions);
@@ -114,11 +144,9 @@ router.post('/logout', async (req, res) => {
 });
 
 router.post('/refresh', refreshLimiter, async (req, res) => {
-    refreshAttempts.inc();
     try {
         const refreshToken = req.cookies.refresh_token;
         if (!refreshToken) {
-            refreshFailures.inc();
             throw new Error('No se encontró token de refresco');
         }
 
@@ -128,9 +156,11 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
         res.cookie('access_token', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
         res.cookie('refresh_token', newRefreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
 
+        authRefreshRotationsTotal.inc();
+        authRefreshRevocationsTotal.inc({ reason: 'rotation' });
+
         res.success({ message: 'Token renovado exitosamente' });
     } catch (err) {
-        refreshFailures.inc();
         console.error('Refresh error:', err);
         res.error(err.message, 401);
     }
@@ -153,7 +183,6 @@ router.get('/me', async (req, res) => {
 });
 
 router.post('/forgot', forgotLimiter, async (req, res) => {
-    passwordResetRequests.inc();
     try {
         const result = forgotSchema.safeParse(req.body);
         if (!result.success) {

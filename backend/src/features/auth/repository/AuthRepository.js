@@ -60,5 +60,11 @@ export const AuthRepository = {
 
     async updatePassword(userId, passwordHash) {
         await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+    },
+
+    async countActiveSessions() {
+        // Suggested Index: CREATE INDEX idx_refresh_tokens_active ON refresh_tokens (revoked_at, expires_at);
+        const res = await query('SELECT COUNT(*) FROM refresh_tokens WHERE revoked_at IS NULL AND expires_at > NOW()');
+        return parseInt(res.rows[0].count, 10) || 0;
     }
 };
