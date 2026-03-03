@@ -4,11 +4,17 @@ import { AuthService } from '../services/AuthService.js';
 import { TokenService } from '../services/TokenService.js';
 import { z } from 'zod';
 
+import { loginAttempts, loginFailures, refreshAttempts, refreshFailures, rateLimitHits, passwordResetRequests } from '../utils/metrics.js';
+
 const router = express.Router();
 
 const createLimiter = (maxRequests) => rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: maxRequests,
+    handler: (req, res, next, options) => {
+        rateLimitHits.inc({ endpoint: req.baseUrl + req.path });
+        res.status(options.statusCode).json(options.message);
+    },
     message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -69,9 +75,11 @@ router.post('/register', registerLimiter, async (req, res) => {
 });
 
 router.post('/login', loginLimiter, async (req, res) => {
+    loginAttempts.inc();
     try {
         const result = loginSchema.safeParse(req.body);
         if (!result.success) {
+            loginFailures.inc({ reason: 'validation' });
             return res.error('Datos inválidos.', 400);
         }
 
@@ -83,6 +91,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
         res.success({ user });
     } catch (err) {
+        loginFailures.inc({ reason: 'auth' });
         console.error('Login error:', err.message);
         res.error(err.message, 401);
     }
@@ -105,9 +114,13 @@ router.post('/logout', async (req, res) => {
 });
 
 router.post('/refresh', refreshLimiter, async (req, res) => {
+    refreshAttempts.inc();
     try {
         const refreshToken = req.cookies.refresh_token;
-        if (!refreshToken) throw new Error('No se encontró token de refresco');
+        if (!refreshToken) {
+            refreshFailures.inc();
+            throw new Error('No se encontró token de refresco');
+        }
 
         const hash = TokenService.hashToken(refreshToken);
         const { accessToken, refreshToken: newRefreshToken } = await AuthService.refresh(hash);
@@ -117,6 +130,7 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
 
         res.success({ message: 'Token renovado exitosamente' });
     } catch (err) {
+        refreshFailures.inc();
         console.error('Refresh error:', err);
         res.error(err.message, 401);
     }
@@ -139,6 +153,7 @@ router.get('/me', async (req, res) => {
 });
 
 router.post('/forgot', forgotLimiter, async (req, res) => {
+    passwordResetRequests.inc();
     try {
         const result = forgotSchema.safeParse(req.body);
         if (!result.success) {

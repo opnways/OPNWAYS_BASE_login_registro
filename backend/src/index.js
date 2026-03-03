@@ -31,6 +31,17 @@ app.use((req, res, next) => {
 import authRoutes from './features/auth/api/AuthRoutes.js';
 app.use('/api/auth', authRoutes);
 
+import { register } from './features/auth/utils/metrics.js';
+
+app.get('/metrics', async (req, res) => {
+    try {
+        res.set('Content-Type', register.contentType);
+        res.end(await register.metrics());
+    } catch (err) {
+        res.status(500).end(err.message);
+    }
+});
+
 app.get('/health', (req, res) => {
     res.success({ status: 'up' });
 });
