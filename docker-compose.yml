@@ -22,7 +22,19 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-secret_access}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-secret_refresh}
       PORT: 3000
+      APP_NAME: ${APP_NAME:-Auth Starter}
+      APP_URL: ${APP_URL:-http://localhost:5173}
+      API_URL: ${API_URL:-http://localhost:3000/api}
       FRONTEND_URL: http://localhost:5173
+      COOKIE_NAME_ACCESS: ${COOKIE_NAME_ACCESS:-access_token}
+      COOKIE_NAME_REFRESH: ${COOKIE_NAME_REFRESH:-refresh_token}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-7d}
+      LOGIN_SUCCESS_REDIRECT: ${LOGIN_SUCCESS_REDIRECT:-/dashboard}
+      LOGOUT_REDIRECT: ${LOGOUT_REDIRECT:-/login}
+      DEFAULT_AUTH_REDIRECT: ${DEFAULT_AUTH_REDIRECT:-/dashboard}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       NODE_ENV: development
       RESEND_API_KEY: ${RESEND_API_KEY}
       SMTP_HOST: ${SMTP_HOST:-mailhog}
@@ -41,7 +53,11 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_API_URL: http://localhost:3000/api
+      VITE_APP_NAME: ${VITE_APP_NAME:-Auth Starter}
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+      VITE_AUTH_LOGIN_REDIRECT: ${VITE_AUTH_LOGIN_REDIRECT:-http://localhost:5174/dashboard}
+      VITE_AUTH_LOGOUT_REDIRECT: ${VITE_AUTH_LOGOUT_REDIRECT:-http://localhost:5174/}
+      VITE_DEFAULT_PUBLIC_ROUTE: ${VITE_DEFAULT_PUBLIC_ROUTE:-/login}
     depends_on:
       - backend
     volumes:

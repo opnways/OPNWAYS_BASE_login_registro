@@ -1,8 +1,9 @@
 import { query } from '../../../utils/db.js';
 
 export const AuthRepository = {
-    async createUser(email, passwordHash) {
-        const res = await query(
+    async createUser(email, passwordHash, client = null) {
+        const executor = client || { query };
+        const res = await executor.query(
             'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, created_at',
             [email, passwordHash]
         );
@@ -19,24 +20,48 @@ export const AuthRepository = {
         return res.rows[0];
     },
 
-    async saveRefreshToken(userId, tokenHash, expiresAt) {
-        const res = await query(
+    async saveRefreshToken(userId, tokenHash, expiresAt, client = null) {
+        const executor = client || { query };
+        const res = await executor.query(
             'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3) RETURNING id',
             [userId, tokenHash, expiresAt]
         );
         return res.rows[0].id;
     },
 
-    async findRefreshToken(tokenHash) {
-        const res = await query(
+    async findRefreshToken(tokenHash, client = null) {
+        const executor = client || { query };
+        const res = await executor.query(
             'SELECT * FROM refresh_tokens WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()',
             [tokenHash]
         );
         return res.rows[0];
     },
 
-    async revokeRefreshToken(id) {
-        await query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1', [id]);
+    async findRefreshTokenAllStates(tokenHash, client = null) {
+        const executor = client || { query };
+        const res = await executor.query(
+            'SELECT * FROM refresh_tokens WHERE token_hash = $1',
+            [tokenHash]
+        );
+        return res.rows[0];
+    },
+
+    async revokeRefreshToken(id, replacedBy = null, client = null) {
+        const executor = client || { query };
+        await executor.query(
+            'UPDATE refresh_tokens SET revoked_at = NOW(), replaced_by = $2 WHERE id = $1',
+            [id, replacedBy]
+        );
+    },
+
+    async revokeAllUserRefreshTokens(userId, client = null) {
+        const executor = client || { query };
+        await executor.query(
+            'UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL',
+            [userId]
+        );
+
     },
 
     async savePasswordResetToken(userId, tokenHash, expiresAt) {
@@ -54,11 +79,27 @@ export const AuthRepository = {
         return res.rows[0];
     },
 
-    async usePasswordResetToken(id) {
-        await query('UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1', [id]);
+    async usePasswordResetToken(id, client = null) {
+        const executor = client || { query };
+        await executor.query('UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1', [id]);
     },
 
-    async updatePassword(userId, passwordHash) {
-        await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+    async invalidateAllUserResetTokens(userId, client = null) {
+        const executor = client || { query };
+        await executor.query(
+            'UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL',
+            [userId]
+        );
+    },
+
+    async updatePassword(userId, passwordHash, client = null) {
+        const executor = client || { query };
+        await executor.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+    },
+
+    async countActiveSessions() {
+        // Suggested Index: CREATE INDEX idx_refresh_tokens_active ON refresh_tokens (revoked_at, expires_at);
+        const res = await query('SELECT COUNT(*) FROM refresh_tokens WHERE revoked_at IS NULL AND expires_at > NOW()');
+        return parseInt(res.rows[0].count, 10) || 0;
     }
 };

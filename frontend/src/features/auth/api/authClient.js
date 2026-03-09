@@ -1,8 +1,20 @@
 import axios from 'axios';
+import { authConfig } from '../config/authConfig';
 
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
+    baseURL: authConfig.apiUrl,
     withCredentials: true
+});
+
+// Interceptor para leer la cookie csrf_token expuesta y adjuntarla como Header
+api.interceptors.request.use((config) => {
+    const match = document.cookie.match(/(?:^|; )csrf_token=([^;]+)/);
+    if (match) {
+        config.headers['X-CSRF-Token'] = match[1];
+    }
+    return config;
+}, (error) => {
+    return Promise.reject(error);
 });
 
 export const authClient = {
@@ -32,6 +44,10 @@ export const authClient = {
     },
     async resetPassword(token, password) {
         const { data } = await api.post('/auth/reset', { token, password });
+        return data;
+    },
+    async getCsrf() {
+        const { data } = await api.get('/auth/csrf');
         return data;
     }
 };

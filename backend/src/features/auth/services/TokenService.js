@@ -1,20 +1,25 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { AuthRepository } from '../repository/AuthRepository.js';
+import { authConfig } from '../utils/authConfig.js';
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'secret_access';
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'secret_refresh';
+const isProd = process.env.NODE_ENV === 'production';
+
+if (isProd && (!process.env.JWT_ACCESS_SECRET || !process.env.JWT_REFRESH_SECRET)) {
+    console.error('CRITICAL ERROR: JWT_ACCESS_SECRET or JWT_REFRESH_SECRET is missing in production environment.');
+    process.exit(1);
+}
+
+const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'dev_only_secret_access_do_not_use_in_prod';
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev_only_secret_refresh_do_not_use_in_prod';
 
 export const TokenService = {
-    async generateTokenPair(userId) {
-        const accessToken = jwt.sign({ sub: userId }, ACCESS_SECRET, { expiresIn: '15m' });
+    generateTokenPair(userId) {
+        const accessToken = jwt.sign({ sub: userId }, ACCESS_SECRET, { expiresIn: authConfig.token.accessTtl });
         const refreshTokenPlain = crypto.randomBytes(40).toString('hex');
         const refreshTokenHash = this.hashToken(refreshTokenPlain);
+        const expiresAt = new Date(Date.now() + authConfig.token.refreshMaxAgeMs);
 
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-        await AuthRepository.saveRefreshToken(userId, refreshTokenHash, expiresAt);
-
-        return { accessToken, refreshToken: refreshTokenPlain };
+        return { accessToken, refreshToken: refreshTokenPlain, refreshTokenHash, expiresAt };
     },
 
     verifyAccessToken(token) {
