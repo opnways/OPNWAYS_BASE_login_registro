@@ -1,16 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { Lock, Mail, Loader2 } from 'lucide-react';
 import { authConfig, authRoutes } from '../config/authConfig';
+import { redirectTo } from '../utils/redirect';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const { login } = useAuth();
+    const { user, loading: authLoading, login } = useAuth();
     const navigate = useNavigate();
+
+
+    useEffect(() => {
+        if (!authLoading && user) {
+            redirectTo(navigate, authConfig.redirects.loginSuccess, { replace: true });
+        }
+    }, [authLoading, navigate, user]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -19,7 +27,7 @@ export default function LoginPage() {
         try {
             const res = await login(email, password);
             if (res.success) {
-                navigate(authConfig.redirects.loginSuccess);
+                redirectTo(navigate, authConfig.redirects.loginSuccess, { replace: true });
             } else {
                 setError(res.error || 'Invalid credentials');
             }

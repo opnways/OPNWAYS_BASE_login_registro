@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { authClient } from '../api/authClient';
 import { useNavigate, Link } from 'react-router-dom';
 import { UserPlus, Mail, Lock, Loader2 } from 'lucide-react';
-import { authRoutes } from '../config/authConfig';
+import { authConfig, authRoutes } from '../config/authConfig';
+import { redirectTo } from '../utils/redirect';
+import { useAuth } from '../context/AuthContext';
 
 export default function RegisterPage() {
     const [email, setEmail] = useState('');
@@ -11,6 +13,14 @@ export default function RegisterPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const { user, loading: authLoading } = useAuth();
+
+
+    useEffect(() => {
+        if (!authLoading && user) {
+            redirectTo(navigate, authConfig.redirects.loginSuccess, { replace: true });
+        }
+    }, [authLoading, navigate, user]);
 
     const passwordRequirements = [
         { label: '8+ caracteres', regex: /.{8,}/ },

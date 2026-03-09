@@ -55,9 +55,8 @@ services:
     environment:
       VITE_APP_NAME: ${VITE_APP_NAME:-Auth Starter}
       VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
-      VITE_AUTH_LOGIN_REDIRECT: ${VITE_AUTH_LOGIN_REDIRECT:-/dashboard}
-      VITE_AUTH_LOGOUT_REDIRECT: ${VITE_AUTH_LOGOUT_REDIRECT:-/login}
-      VITE_DEFAULT_AUTHENTICATED_ROUTE: ${VITE_DEFAULT_AUTHENTICATED_ROUTE:-/dashboard}
+      VITE_AUTH_LOGIN_REDIRECT: ${VITE_AUTH_LOGIN_REDIRECT:-http://localhost:5174/dashboard}
+      VITE_AUTH_LOGOUT_REDIRECT: ${VITE_AUTH_LOGOUT_REDIRECT:-http://localhost:5174/}
       VITE_DEFAULT_PUBLIC_ROUTE: ${VITE_DEFAULT_PUBLIC_ROUTE:-/login}
     depends_on:
       - backend

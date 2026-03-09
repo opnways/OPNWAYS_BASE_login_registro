@@ -6,7 +6,6 @@ export const authConfig = {
     redirects: {
         loginSuccess: env.VITE_AUTH_LOGIN_REDIRECT || '/dashboard',
         logout: env.VITE_AUTH_LOGOUT_REDIRECT || '/login',
-        authenticatedDefault: env.VITE_DEFAULT_AUTHENTICATED_ROUTE || '/dashboard',
         publicDefault: env.VITE_DEFAULT_PUBLIC_ROUTE || '/login'
     }
 };
@@ -15,5 +14,6 @@ export const authRoutes = {
     login: '/login',
     register: '/register',
     forgotPassword: '/forgot-password',
-    resetPassword: '/reset-password'
+    resetPassword: '/reset-password',
+    logout: '/logout'
 };
