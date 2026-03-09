@@ -161,8 +161,9 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
 
         res.success({ message: 'Token renovado exitosamente' });
     } catch (err) {
-        console.error('Refresh error:', err);
-        res.error(err.message, 401);
+        console.error('Refresh error:', err.message);
+        // Fix 8: Siempre mensaje genérico al cliente; detalles de seguridad quedan en el log
+        res.error('Sesión inválida.', 401);
     }
 });
 

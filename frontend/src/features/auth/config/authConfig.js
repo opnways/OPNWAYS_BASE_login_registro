@@ -7,6 +7,10 @@ export const authConfig = {
         loginSuccess: env.VITE_AUTH_LOGIN_REDIRECT || '/dashboard',
         logout: env.VITE_AUTH_LOGOUT_REDIRECT || '/login',
         publicDefault: env.VITE_DEFAULT_PUBLIC_ROUTE || '/login'
+    },
+    cookies: {
+        // Fix 9: Nombre centralizado de la cookie CSRF (debe coincidir con el backend)
+        csrfTokenName: 'csrf_token',
     }
 };
 

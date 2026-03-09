@@ -1,11 +1,12 @@
 import crypto from 'crypto';
+import { authConfig } from '../utils/authConfig.js';
 
 export const generateCsrfToken = () => {
     return crypto.randomBytes(32).toString('hex');
 };
 
 export const verifyCsrf = (req, res, next) => {
-    const cookieToken = req.cookies.csrf_token;
+    const cookieToken = req.cookies[authConfig.cookies.csrfTokenName];
     const headerToken = req.headers['x-csrf-token'];
 
     if (!cookieToken || !headerToken) {
