@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { authConfig } from '../config/authConfig';
 import { redirectTo } from '../utils/redirect';
 
 export default function LogoutPage() {
+    const [searchParams] = useSearchParams();
+    const returnTo = searchParams.get('returnTo');
     const { logout } = useAuth();
     const navigate = useNavigate();
 
@@ -13,7 +15,7 @@ export default function LogoutPage() {
             try {
                 await logout();
             } finally {
-                redirectTo(navigate, authConfig.redirects.logout, { replace: true });
+                redirectTo(navigate, returnTo || authConfig.redirects.logout, { replace: true });
             }
         };
 
