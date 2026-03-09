@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
+import { authConfig } from '../utils/authConfig.js';
 
 // MailHog / SMTP Transporter
 const transporter = nodemailer.createTransport({
@@ -17,14 +18,14 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 export const EmailSender = {
     async sendResetPassword(email, token) {
-        const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+        const resetLink = `${authConfig.app.appUrl}/reset-password?token=${token}`;
         const isDev = process.env.NODE_ENV === 'development';
 
         // Dev/MailHog Priority in Development
         if (isDev) {
             try {
                 await transporter.sendMail({
-                    from: process.env.EMAIL_FROM || '"Auth Starter Kit" <noreply@example.com>',
+                    from: process.env.EMAIL_FROM || `"${authConfig.app.name}" <noreply@example.com>`,
                     to: email,
                     subject: 'Password Reset Request',
                     html: `

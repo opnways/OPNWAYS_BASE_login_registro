@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { authClient } from '../api/authClient';
 import { useNavigate, Link } from 'react-router-dom';
 import { UserPlus, Mail, Lock, Loader2 } from 'lucide-react';
+import { authRoutes } from '../config/authConfig';
 
 export default function RegisterPage() {
     const [email, setEmail] = useState('');
@@ -35,7 +36,7 @@ export default function RegisterPage() {
         try {
             const res = await authClient.register(email, password);
             if (res.success) {
-                navigate('/login', { state: { message: 'Cuenta creada con éxito! Por favor, inicia sesión.' } });
+                navigate(authRoutes.login, { state: { message: 'Cuenta creada con éxito! Por favor, inicia sesión.' } });
             } else {
                 setError(res.error || 'No se pudo crear la cuenta');
             }
@@ -131,7 +132,7 @@ export default function RegisterPage() {
 
             <p className="text-center mt-8 text-sm text-slate-600">
                 ¿Ya tienes cuenta?{' '}
-                <Link to="/login" className="font-semibold text-slate-900 hover:underline">
+                <Link to={authRoutes.login} className="font-semibold text-slate-900 hover:underline">
                     Inicia sesión
                 </Link>
             </p>

@@ -4,6 +4,8 @@ import { AuthService } from '../services/AuthService.js';
 import { TokenService } from '../services/TokenService.js';
 import { z } from 'zod';
 import { generateCsrfToken, verifyCsrf } from '../utils/csrf.js';
+import { authCookies } from './authCookies.js';
+import { authConfig } from '../utils/authConfig.js';
 
 import {
     authRequestsTotal,
@@ -59,12 +61,6 @@ const resetLimiter = createLimiter(5);
 const refreshLimiter = createLimiter(60);
 const registerLimiter = createLimiter(10);
 
-const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/'
-};
 
 const passwordSchema = z.string()
     .min(8, 'La contraseña debe tener al menos 8 caracteres')
@@ -93,12 +89,7 @@ const resetSchema = z.object({
 
 router.get('/csrf', (req, res) => {
     const token = generateCsrfToken();
-    res.cookie('csrf_token', token, {
-        httpOnly: false, // Necesario para que Axios la lea
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/'
-    });
+    authCookies.setCsrfCookie(res, token);
     res.success({ csrfToken: token });
 });
 
@@ -128,8 +119,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         const { email, password } = result.data;
         const { user, accessToken, refreshToken } = await AuthService.login(email, password);
 
-        res.cookie('access_token', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
-        res.cookie('refresh_token', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        authCookies.setSessionCookies(res, accessToken, refreshToken);
 
         res.success({ user });
     } catch (err) {
@@ -140,14 +130,13 @@ router.post('/login', loginLimiter, async (req, res) => {
 
 router.post('/logout', verifyCsrf, async (req, res) => {
     try {
-        const refreshToken = req.cookies.refresh_token;
+        const refreshToken = req.cookies[authConfig.cookies.refreshTokenName];
         if (refreshToken) {
             const hash = TokenService.hashToken(refreshToken);
             await AuthService.logout(hash);
             authRefreshRevocationsTotal.inc({ reason: 'logout' });
         }
-        res.clearCookie('access_token', cookieOptions);
-        res.clearCookie('refresh_token', cookieOptions);
+        authCookies.clearSessionCookies(res);
         res.success({ message: 'Sesión cerrada exitosamente' });
     } catch (err) {
         console.error('Logout error:', err);
@@ -157,7 +146,7 @@ router.post('/logout', verifyCsrf, async (req, res) => {
 
 router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
     try {
-        const refreshToken = req.cookies.refresh_token;
+        const refreshToken = req.cookies[authConfig.cookies.refreshTokenName];
         if (!refreshToken) {
             throw new Error('No se encontró token de refresco');
         }
@@ -165,8 +154,7 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
         const hash = TokenService.hashToken(refreshToken);
         const { accessToken, refreshToken: newRefreshToken } = await AuthService.refresh(hash);
 
-        res.cookie('access_token', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
-        res.cookie('refresh_token', newRefreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        authCookies.setSessionCookies(res, accessToken, newRefreshToken);
 
         authRefreshRotationsTotal.inc();
         authRefreshRevocationsTotal.inc({ reason: 'rotation' });
@@ -180,7 +168,7 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
 
 router.get('/me', async (req, res) => {
     try {
-        const token = req.cookies.access_token;
+        const token = req.cookies[authConfig.cookies.accessTokenName];
         if (!token) throw new Error('No autenticado');
 
         const decoded = TokenService.verifyAccessToken(token);

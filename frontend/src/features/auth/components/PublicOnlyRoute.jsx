@@ -2,7 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { authConfig } from '../config/authConfig';
 
-export function ProtectedRoute() {
+export function PublicOnlyRoute() {
     const { user, loading } = useAuth();
 
     if (loading) {
@@ -13,8 +13,8 @@ export function ProtectedRoute() {
         );
     }
 
-    if (!user) {
-        return <Navigate to={authConfig.redirects.publicDefault} replace />;
+    if (user) {
+        return <Navigate to={authConfig.redirects.authenticatedDefault} replace />;
     }
 
     return <Outlet />;

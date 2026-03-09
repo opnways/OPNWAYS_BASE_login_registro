@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { Lock, Mail, Loader2 } from 'lucide-react';
+import { authConfig, authRoutes } from '../config/authConfig';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -18,7 +19,7 @@ export default function LoginPage() {
         try {
             const res = await login(email, password);
             if (res.success) {
-                navigate('/dashboard');
+                navigate(authConfig.redirects.loginSuccess);
             } else {
                 setError(res.error || 'Invalid credentials');
             }
@@ -64,7 +65,7 @@ export default function LoginPage() {
                 <div>
                     <div className="flex justify-between mb-2">
                         <label className="text-sm font-medium text-slate-700">Contraseña</label>
-                        <Link to="/forgot-password" title="recuperar" className="text-sm text-slate-500 hover:text-slate-900 transition-colors">
+                        <Link to={authRoutes.forgotPassword} title="recuperar" className="text-sm text-slate-500 hover:text-slate-900 transition-colors">
                             ¿Olvidaste tu contraseña?
                         </Link>
                     </div>
@@ -92,7 +93,7 @@ export default function LoginPage() {
 
             <p className="text-center mt-8 text-sm text-slate-600">
                 ¿No tienes cuenta?{' '}
-                <Link to="/register" className="font-semibold text-slate-900 hover:underline">
+                <Link to={authRoutes.register} className="font-semibold text-slate-900 hover:underline">
                     Regístrate aquí
                 </Link>
             </p>

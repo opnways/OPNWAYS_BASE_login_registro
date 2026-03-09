@@ -1,15 +1,23 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider } from './features/auth/context/AuthContext';
 import { ProtectedRoute } from './features/auth/components/ProtectedRoute';
+import { PublicOnlyRoute } from './features/auth/components/PublicOnlyRoute';
 import LoginPage from './features/auth/components/LoginPage';
 import RegisterPage from './features/auth/components/RegisterPage';
 import ForgotPasswordPage from './features/auth/components/ForgotPasswordPage';
 import ResetPasswordPage from './features/auth/components/ResetPasswordPage';
 import { useAuth } from './features/auth/context/AuthContext';
 import { LogOut, User, ShieldCheck } from 'lucide-react';
+import { authConfig, authRoutes } from './features/auth/config/authConfig';
 
 function Dashboard() {
     const { user, logout } = useAuth();
+    const navigate = useNavigate();
+
+    const handleLogout = async () => {
+        await logout();
+        navigate(authConfig.redirects.logout);
+    };
     return (
         <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl shadow-slate-200/50 overflow-hidden border border-slate-100">
             <div className="bg-slate-900 p-8 text-white relative overflow-hidden">
@@ -22,7 +30,7 @@ function Dashboard() {
                         <p className="text-slate-400 mt-1">Has accedido correctamente al área protegida</p>
                     </div>
                     <button
-                        onClick={logout}
+                        onClick={handleLogout}
                         className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                         title="Cerrar sesión"
                     >
@@ -63,16 +71,19 @@ function App() {
             <Router>
                 <div className="min-h-screen w-full flex items-center justify-center p-4 bg-slate-50">
                     <Routes>
-                        <Route path="/login" element={<LoginPage />} />
-                        <Route path="/register" element={<RegisterPage />} />
-                        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                        <Route path="/reset-password" element={<ResetPasswordPage />} />
-
-                        <Route element={<ProtectedRoute />}>
-                            <Route path="/dashboard" element={<Dashboard />} />
+                        <Route element={<PublicOnlyRoute />}>
+                            <Route path={authRoutes.login} element={<LoginPage />} />
+                            <Route path={authRoutes.register} element={<RegisterPage />} />
                         </Route>
 
-                        <Route path="*" element={<Navigate to="/login" replace />} />
+                        <Route path={authRoutes.forgotPassword} element={<ForgotPasswordPage />} />
+                        <Route path={authRoutes.resetPassword} element={<ResetPasswordPage />} />
+
+                        <Route element={<ProtectedRoute />}>
+                            <Route path={authConfig.redirects.authenticatedDefault} element={<Dashboard />} />
+                        </Route>
+
+                        <Route path="*" element={<Navigate to={authConfig.redirects.publicDefault} replace />} />
                     </Routes>
                 </div>
             </Router>
