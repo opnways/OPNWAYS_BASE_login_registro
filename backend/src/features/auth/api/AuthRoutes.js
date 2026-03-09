@@ -34,7 +34,13 @@ router.use((req, res, next) => {
     const startTimer = authEndpointDurationSeconds.startTimer();
 
     res.on('finish', () => {
-        const statusCode = res.statusCode.toString();
+        let statusCode = res.statusCode.toString();
+
+        // Prevent DoS via cardinality explosion in Prometheus metrics
+        const allowedStatuses = ['200', '400', '401', '403', '404', '413', '429', '500'];
+        if (!allowedStatuses.includes(statusCode)) {
+            statusCode = res.statusCode >= 500 ? '500' : 'unknown';
+        }
 
         authRequestsTotal.inc({ endpoint, status: statusCode });
         startTimer({ endpoint, status: statusCode });
