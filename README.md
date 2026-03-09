@@ -1,6 +1,6 @@
-# Login y Registro con Docker
+# Auth Starter Kit (Node.js + React + PostgreSQL)
 
-Este proyecto es una aplicación web simple de registro e inicio de sesión desarrollada con PHP y MySQL, empaquetada en contenedores Docker.
+Este proyecto es una base clonable orientada a la seguridad (**Auth Starter Kit**) construida con un stack moderno de Node.js, React y PostgreSQL. Emplea las mejores prácticas de seguridad, como el patrón *Double Submit Cookie* para CSRF, rotación de *Refresh Tokens* y detección de ataques de reúso (*Reuse Detection*).
 
 ## 📋 Requisitos Previos
 
@@ -9,60 +9,97 @@ Este proyecto es una aplicación web simple de registro e inicio de sesión desa
 
 ## 🚀 Instalación y Ejecución
 
-1. **Clonar el repositorio** (o descargar los archivos del proyecto).
+1. **Clonar el repositorio** y copiar los archivos de entorno:
 
-2. **Abrir una terminal** en el directorio que contiene el archivo `docker-compose.yml`.
+   ```bash
+   cp .env.example .env
+   ```
 
-3. **Construir y ejecutar** los contenedores con el siguiente comando:
+2. **Construir y levantar la infraestructura** (Backend, Frontend, Base de datos y Mailhog):
 
    ```bash
    docker-compose up -d --build
    ```
 
-   - `up`: Crea y arranca los servicios.
-   - `-d`: Ejecuta los contenedores en segundo plano (detached mode).
-   - `--build`: Fuerza la reconstrucción de las imágenes antes de arrancar.
+3. **Acceder a los endpoints y aplicaciones**:
+   - **Frontend (React)**: [http://localhost:5173](http://localhost:5173)
+   - **Backend API**: `http://localhost:3000/api/auth`
+   - **Métricas Prometheus**: [http://localhost:3000/metrics](http://localhost:3000/metrics)
+   - **Bandeja de Correos (Mailhog)**: [http://localhost:8025](http://localhost:8025)
 
-4. **Acceder a la aplicación**:
-   Una vez que los contenedores estén funcionando, puedes acceder a la aplicación abriendo tu navegador y visitando:
-   - **Aplicación PHP**: `http://localhost`
-   - **phpMyAdmin** (gestión de base de datos): `http://localhost:8080`
+---
 
-## 🛠️ Comandos Útiles
+## 🧪 Ejecución de Tests (Supertest + Node:test)
 
-- **Detener los contenedores**:
+El backend de este starter kit posee una suite de tests end-to-end (E2E) e integraciones escritas con el test runner nativo de Node.js (`node:test`) y `supertest`.
 
-  ```bash
-  docker-compose down
-  ```
+Dado que el entorno está containerizado, la forma óptima de ejecutar las pruebas de seguridad y de los endpoints es **dentro del contenedor del backend**.
 
-- **Detener y eliminar los contenedores y redes** (manteniendo los datos de la base de datos):
+### Ejecutar todos los tests
 
-  ```bash
-  docker-compose down -v
-  ```
+Para correr todas las suites de prueba de una sola vez, interactúa con el contenedor `backend` activo:
 
-- **Ver los logs** de los contenedores:
+```bash
+docker-compose exec backend node --test
+```
+
+### Ejecutar un test específico
+
+Si estás modeficando o revisando una mecánica de seguridad en particular, puedes ejecutar un único archivo de prueba pasándole la ruta específica:
+
+1. **Test del límite de tamaño de las peticiones (Payloads < 50kb)**:
+
+   ```bash
+   docker-compose exec backend node --test tests/payload.test.js
+   ```
+
+2. **Test de la protección CSRF (Double Submit Cookie)**:
+
+   ```bash
+   docker-compose exec backend node --test tests/csrf.test.js
+   ```
+
+3. **Test de rotación de tokens y detección de ataques de reúso (Reuse Attack)**:
+
+   ```bash
+   docker-compose exec backend node --test tests/reuse.test.js
+   ```
+
+4. **Test de revocación en cascada de sesiones tras aplicar un reseteo de contraseña**:
+
+   ```bash
+   docker-compose exec backend node --test tests/reset_revocation.test.js
+   ```
+
+Nótese que estas pruebas utilizan la base de datos de Docker mediante tu `DATABASE_URL` y probarán los bloqueos y transacciones de SQL reales sin afectar o requerir mocks agresivos, validando la aplicación como una caja negra (Black-Box Testing).
+
+---
+
+## 🛠️ Comandos Útiles de Docker
+
+- **Ver logs en tiempo real**:
 
   ```bash
   docker-compose logs -f
   ```
 
-- **Acceder a la terminal** del contenedor PHP:
+  *(Añade el flag de backend para aislarlo: `docker-compose logs -f backend`)*
+
+- **Detener los servicios sin borrar la base de datos**:
 
   ```bash
-  docker-compose exec php bash
+  docker-compose down
   ```
 
-## 📂 Estructura del Proyecto
+- **Empezar desde cero y borrar los volúmenes (Base de Datos)**:
 
-- `docker-compose.yml`: Define los servicios (PHP, MySQL, phpMyAdmin).
-- `Dockerfile`: Configuración para construir la imagen PHP.
-- `src/`: Código fuente de la aplicación PHP (registro, login, dashboard).
-- `db/`: Scripts de inicialización de la base de datos.
+  ```bash
+  docker-compose down -v
+  ```
 
-## 🔐 Credenciales por Defecto
+- **Forzar la ejecución manual de las migraciones SQL**:
+  Las migraciones corren automáticamente al arrancar el backend pre-start, pero si fuesen necesarias ejecutarlas a mano:
 
-- **MySQL**: Usuario `root`, contraseña `root_password`.
-- **phpMyAdmin**: Usuario `root`, contraseña `root_password`.
-- **Aplicación PHP**: Puedes crear usuarios registrándote en la aplicación.
+  ```bash
+  docker-compose exec backend node src/migrations/run.js
+  ```

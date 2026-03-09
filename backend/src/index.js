@@ -17,15 +17,16 @@ app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true
 }));
-app.use(express.json());
-app.use(cookieParser());
-
 // Base API Contract Response Helper
 app.use((req, res, next) => {
     res.success = (data) => res.json({ success: true, data, error: null });
     res.error = (message, status = 400) => res.status(status).json({ success: false, data: null, error: message });
     next();
 });
+
+app.use(express.json({ limit: '50kb' }));
+app.use(express.urlencoded({ extended: false, limit: '50kb' }));
+app.use(cookieParser());
 
 // Routes (Screaming Architecture: features/auth)
 import authRoutes from './features/auth/api/AuthRoutes.js';
@@ -44,6 +45,13 @@ app.get('/metrics', async (req, res) => {
 
 app.get('/health', (req, res) => {
     res.success({ status: 'up' });
+});
+
+app.use((err, req, res, next) => {
+    if (err.type === 'entity.too.large') {
+        return res.error('El tamaño de la petición excede el límite permitido de 50kb', 413);
+    }
+    next(err);
 });
 
 app.listen(port, () => {

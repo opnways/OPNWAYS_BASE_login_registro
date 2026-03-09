@@ -13,15 +13,15 @@ const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'dev_only_secret_access_d
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev_only_secret_refresh_do_not_use_in_prod';
 
 export const TokenService = {
-    async generateTokenPair(userId) {
+    async generateTokenPair(userId, client = null) {
         const accessToken = jwt.sign({ sub: userId }, ACCESS_SECRET, { expiresIn: '15m' });
         const refreshTokenPlain = crypto.randomBytes(40).toString('hex');
         const refreshTokenHash = this.hashToken(refreshTokenPlain);
 
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-        await AuthRepository.saveRefreshToken(userId, refreshTokenHash, expiresAt);
+        const insertId = await AuthRepository.saveRefreshToken(userId, refreshTokenHash, expiresAt, client);
 
-        return { accessToken, refreshToken: refreshTokenPlain };
+        return { accessToken, refreshToken: refreshTokenPlain, insertId };
     },
 
     verifyAccessToken(token) {

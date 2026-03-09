@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { AuthService } from '../services/AuthService.js';
 import { TokenService } from '../services/TokenService.js';
 import { z } from 'zod';
+import { generateCsrfToken, verifyCsrf } from '../utils/csrf.js';
 
 import {
     authRequestsTotal,
@@ -90,6 +91,17 @@ const resetSchema = z.object({
     password: passwordSchema
 });
 
+router.get('/csrf', (req, res) => {
+    const token = generateCsrfToken();
+    res.cookie('csrf_token', token, {
+        httpOnly: false, // Necesario para que Axios la lea
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/'
+    });
+    res.success({ csrfToken: token });
+});
+
 router.post('/register', registerLimiter, async (req, res) => {
     try {
         const result = registerSchema.safeParse(req.body);
@@ -126,7 +138,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     }
 });
 
-router.post('/logout', async (req, res) => {
+router.post('/logout', verifyCsrf, async (req, res) => {
     try {
         const refreshToken = req.cookies.refresh_token;
         if (refreshToken) {
@@ -143,7 +155,7 @@ router.post('/logout', async (req, res) => {
     }
 });
 
-router.post('/refresh', refreshLimiter, async (req, res) => {
+router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
     try {
         const refreshToken = req.cookies.refresh_token;
         if (!refreshToken) {
@@ -198,7 +210,7 @@ router.post('/forgot', forgotLimiter, async (req, res) => {
     }
 });
 
-router.post('/reset', resetLimiter, async (req, res) => {
+router.post('/reset', resetLimiter, verifyCsrf, async (req, res) => {
     try {
         const result = resetSchema.safeParse(req.body);
         if (!result.success) {

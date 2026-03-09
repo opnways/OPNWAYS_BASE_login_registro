@@ -8,7 +8,16 @@ export function AuthProvider({ children }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        checkSession();
+        const initSession = async () => {
+            try {
+                // Recuperar la cookie transparente del token CSRF (state mutate protection) al montar la app
+                await authClient.getCsrf();
+            } catch (err) {
+                console.warn('Fallo al recuperar token CSRF:', err);
+            }
+            await checkSession();
+        };
+        initSession();
     }, []);
 
     const checkSession = async () => {
