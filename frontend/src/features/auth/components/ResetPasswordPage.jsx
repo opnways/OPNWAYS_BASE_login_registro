@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { authClient } from '../api/authClient';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Lock, Loader2, CheckCircle } from 'lucide-react';
+import { authRoutes } from '../config/authConfig';
 
 export default function ResetPasswordPage() {
     const [searchParams] = useSearchParams();
@@ -41,7 +42,7 @@ export default function ResetPasswordPage() {
             const res = await authClient.resetPassword(token, password);
             if (res.success) {
                 setMessage('Password updated! Redirecting to login...');
-                setTimeout(() => navigate('/login'), 2000);
+                setTimeout(() => navigate(authRoutes.login), 2000);
             } else {
                 setError(res.error || 'Failed to reset password');
             }

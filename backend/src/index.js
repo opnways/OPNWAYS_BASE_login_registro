@@ -10,11 +10,13 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+import { authConfig } from './features/auth/utils/authConfig.js';
+
 // Middleware
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: authConfig.corsAllowedOrigins,
     credentials: true
 }));
 // Base API Contract Response Helper

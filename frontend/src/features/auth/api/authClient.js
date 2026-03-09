@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { authConfig } from '../config/authConfig';
 
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
+    baseURL: authConfig.apiUrl,
     withCredentials: true
 });
 
