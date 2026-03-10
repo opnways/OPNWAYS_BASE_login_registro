@@ -34,11 +34,13 @@ services:
       LOGIN_SUCCESS_REDIRECT: ${LOGIN_SUCCESS_REDIRECT:-/dashboard}
       LOGOUT_REDIRECT: ${LOGOUT_REDIRECT:-/login}
       DEFAULT_AUTH_REDIRECT: ${DEFAULT_AUTH_REDIRECT:-/dashboard}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:5174,http://localhost}
       NODE_ENV: development
       RESEND_API_KEY: ${RESEND_API_KEY}
       SMTP_HOST: ${SMTP_HOST:-mailhog}
       SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
       EMAIL_FROM: ${EMAIL_FROM:-onboarding@example.com}
     depends_on:
       - db
@@ -51,7 +53,7 @@ services:
       context: ./frontend
     container_name: auth-starter-frontend
     ports:
-      - "5173:5173"
+      - "5173:80"
     environment:
       VITE_APP_NAME: ${VITE_APP_NAME:-Auth Starter}
       VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}

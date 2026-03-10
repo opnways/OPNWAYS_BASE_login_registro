@@ -70,6 +70,7 @@ const registerLimiter = createLimiter(10);
 
 const passwordSchema = z.string()
     .min(8, 'La contraseña debe tener al menos 8 caracteres')
+    .max(128, 'La contraseña es demasiado larga') // Mitigar Hash DoS (Long Password DoS)
     .regex(/[A-Z]/, 'La contraseña debe incluir al menos una mayúscula')
     .regex(/[0-9]/, 'La contraseña debe incluir al menos un número')
     .regex(/[^A-Za-z0-9]/, 'La contraseña debe incluir al menos un carácter especial');
@@ -216,8 +217,10 @@ router.post('/reset', resetLimiter, verifyCsrf, async (req, res) => {
         await AuthService.resetPassword(token, password);
         res.success({ message: 'Tu contraseña ha sido actualizada exitosamente.' });
     } catch (err) {
+        // El detalle del error queda en el log interno; el cliente recibe un mensaje genérico
+        // para evitar filtrar información de dominio (token usado, caducado, inválido…)
         console.error('Reset error:', err.message);
-        res.error(err.message);
+        res.error('No se pudo actualizar la contraseña. El enlace puede ser inválido o haber caducado.', 400);
     }
 });
 
