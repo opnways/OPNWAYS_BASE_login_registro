@@ -75,16 +75,27 @@ app.use('/api/auth', authRoutes);
 import { register } from './features/auth/utils/metrics.js';
 
 app.get('/metrics', async (req, res) => {
-    // Proteger /metrics con contraseña básica si está en producción
+    console.log('NODE_ENV:', process.env.NODE_ENV, 'IP:', req.ip);
+    // Bloquear acceso desde IPs que no sean loopback (127.0.0.1 / ::1) en producción.
+    // En desarrollo, permitir acceso para facilitar testing.
     if (process.env.NODE_ENV === 'production') {
+        const clientIp = req.ip || req.socket?.remoteAddress || '';
+        const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1';
+
+        if (!isLoopback) {
+            return res.status(403).json({ success: false, data: null, error: 'Acceso denegado.' });
+        }
+    }
+
+    // Si METRICS_PASSWORD está definido, exigir autenticación básica (en cualquier entorno).
+    const metricsPass = process.env.METRICS_PASSWORD;
+    if (metricsPass) {
         const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
         const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-
         const metricsUser = process.env.METRICS_USER || 'admin';
-        const metricsPass = process.env.METRICS_PASSWORD;
 
-        if (!metricsPass || login !== metricsUser || password !== metricsPass) {
-            res.set('WWW-Authenticate', 'Basic realm="401"');
+        if (login !== metricsUser || password !== metricsPass) {
+            res.set('WWW-Authenticate', 'Basic realm="metrics"');
             return res.status(401).send('Authentication required.');
         }
     }
@@ -119,7 +130,7 @@ app.use((err, req, res, next) => {
     }
 
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-         return res.error('JSON malformado en la petición', 400);
+        return res.error('JSON malformado en la petición', 400);
     }
 
     res.error('Ocurrió un error interno del servidor.', 500);

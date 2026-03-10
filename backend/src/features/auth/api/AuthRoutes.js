@@ -217,8 +217,10 @@ router.post('/reset', resetLimiter, verifyCsrf, async (req, res) => {
         await AuthService.resetPassword(token, password);
         res.success({ message: 'Tu contraseña ha sido actualizada exitosamente.' });
     } catch (err) {
+        // El detalle del error queda en el log interno; el cliente recibe un mensaje genérico
+        // para evitar filtrar información de dominio (token usado, caducado, inválido…)
         console.error('Reset error:', err.message);
-        res.error(err.message);
+        res.error('No se pudo actualizar la contraseña. El enlace puede ser inválido o haber caducado.', 400);
     }
 });
 

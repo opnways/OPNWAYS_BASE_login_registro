@@ -15,11 +15,13 @@ services:
       context: ./backend
       target: production
     restart: unless-stopped
-    # No montar volúmenes de código fuente locales en el contenedor productivo
+    # Volúmenes de código fuente NO montados en producción
     volumes: []
     environment:
       NODE_ENV: production
-    # Solo exponer el backend si está detrás de un reverse proxy, o eliminar los puertos si el Ingress se encarga
+    # Puerto 3000 NO expuesto al host — el backend es accesible únicamente a través de la
+    # red interna de Docker (desde el reverse proxy). Nunca debe ser reachable desde internet.
+    ports: []
 
   frontend:
     build:
@@ -33,4 +35,4 @@ services:
 
   # En producción el Mailhog se elimina
   mailhog:
-    profiles: ["dev"]
+    profiles: [ "dev" ]
