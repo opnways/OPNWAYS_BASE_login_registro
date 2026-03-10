@@ -47,14 +47,18 @@ export function createAuthService({ repo, tokenService, emailSender, getDbClient
 
         async refresh(refreshTokenHash, context = {}) {
             const client = await getDbClient();
+            let isTxActive = false;
+
             try {
                 await client.query('BEGIN');
+                isTxActive = true;
 
                 const tokenData = await repo.findRefreshTokenAllStates(refreshTokenHash, client);
 
                 // Caso 1: El token base no existe en absoluto (ha sido borrado o es falso)
                 if (!tokenData) {
                     await client.query('ROLLBACK');
+                    isTxActive = false;
                     throw new Error('Token de refresco inválido o modificado');
                 }
 
@@ -63,6 +67,7 @@ export function createAuthService({ repo, tokenService, emailSender, getDbClient
                     // Castigo de Reúso: revoca TODOS los tokens del usuario real
                     await repo.revokeAllUserRefreshTokens(tokenData.user_id, client);
                     await client.query('COMMIT');
+                    isTxActive = false;
 
                     // Fix 8: Log detallado interno sin fugar en req/res
                     console.warn(`[SECURITY ALERT] Refresh token reuse detected. Revoking all active sessions for User ID: ${tokenData.user_id}`);
@@ -71,7 +76,9 @@ export function createAuthService({ repo, tokenService, emailSender, getDbClient
                 }
 
                 // Caso 3: Rotación Normal
-                // Refrescamos metadatos de sesión (IP, User-Agent, Update de last_used_at indirectamente creando uno nuevo).
+                // Refrescamos metadatos de sesión (IP, User-Agent).
+                // Nota semántica: updateamos 'last_used_at' al insertar el sucesor, reflejando el momento 
+                // de la rotación más reciente de esta cadena de sesiones.
                 const { accessToken, refreshToken, refreshTokenHash: newHash, expiresAt } = tokenService.generateTokenPair(tokenData.user_id);
                 const insertId = await repo.saveRefreshToken(tokenData.user_id, newHash, expiresAt, client, context.ip, context.userAgent);
 
@@ -79,10 +86,15 @@ export function createAuthService({ repo, tokenService, emailSender, getDbClient
                 await repo.revokeRefreshToken(tokenData.id, insertId, client);
 
                 await client.query('COMMIT');
+                isTxActive = false;
+
                 return { accessToken, refreshToken };
 
             } catch (err) {
-                await client.query('ROLLBACK');
+                if (isTxActive) {
+                    await client.query('ROLLBACK');
+                    isTxActive = false;
+                }
                 throw err;
             } finally {
                 client.release();

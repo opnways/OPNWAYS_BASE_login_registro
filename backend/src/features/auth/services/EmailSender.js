@@ -16,6 +16,15 @@ const transporter = nodemailer.createTransport({
 // Resend Client
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
+// Mask email to protect PII in logs
+const maskEmail = (email) => {
+    if (!email) return 'unknown';
+    const [name, domain] = email.split('@');
+    if (!domain) return email;
+    if (name.length <= 2) return `${name[0]}***@${domain}`;
+    return `${name[0]}***${name[name.length - 1]}@${domain}`;
+};
+
 export const EmailSender = {
     async sendResetPassword(email, token) {
         const resetLink = `${authConfig.app.appUrl}/reset-password?token=${token}`;
@@ -64,14 +73,14 @@ export const EmailSender = {
             </div>
           `
                 });
-                console.log(`✅ Email sent via Resend to: ${email}`);
+                console.log(`✅ Email sent via Resend to: ${maskEmail(email)}`);
             } catch (error) {
-                console.error('Error sending email via Resend:', error);
+                console.error('Error sending email via Resend:', error.message);
             }
         }
     },
 
     async sendWelcome(email) {
-        console.log(`📧 WELCOME EMAIL TO: ${email}`);
+        console.log(`📧 WELCOME EMAIL TO: ${maskEmail(email)}`);
     }
 };

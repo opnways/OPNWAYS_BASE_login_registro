@@ -74,9 +74,10 @@ const envSchema = z.object({
             ctx.addIssue({ code: z.ZodIssueCode.custom, message: "API_URL no puede usar localhost en producción." });
         }
 
+        // Siempre requerir credenciales en producción si se habilitan las métricas.
         if (data.METRICS_ENABLED === 'true') {
             if (!data.METRICS_USERNAME || !data.METRICS_PASSWORD) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, message: "METRICS_USERNAME y METRICS_PASSWORD son requeridos en producción si METRICS_ENABLED es 'true'." });
+                ctx.addIssue({ code: z.ZodIssueCode.custom, message: "METRICS_USERNAME y METRICS_PASSWORD son obligatorios en producción cuando METRICS_ENABLED es 'true'." });
             }
         }
     }
@@ -86,14 +87,15 @@ let parsedEnv;
 try {
     const isProd = process.env.NODE_ENV === 'production';
 
-    // En producción NO ponemos defaults que tapen errores de configuración
+    // Para secretos como JWT_ACCESS_SECRET, no hay fallback permitidos en CUALQUIER entorno.
+    // Solo permitimos fallbacks razonables en dev/test para URLs con el fin de facilitar la experiencia de desarrollo.
     parsedEnv = envSchema.parse({
         NODE_ENV: process.env.NODE_ENV,
         APP_NAME: process.env.APP_NAME,
-        APP_URL: process.env.APP_URL || (isProd ? '' : 'http://localhost:5173'),
-        API_URL: process.env.API_URL || (isProd ? '' : 'http://localhost:3000/api'),
-        JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || (isProd ? '' : 'dev_only_secret_access_do_not_use_in_prod_123'),
-        CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || (isProd ? '' : 'http://localhost:5173'),
+        APP_URL: process.env.APP_URL || (isProd ? undefined : 'http://localhost:5173'),
+        API_URL: process.env.API_URL || (isProd ? undefined : 'http://localhost:3000/api'),
+        JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
+        CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || (isProd ? undefined : 'http://localhost:5173'),
         COOKIE_DOMAIN: process.env.COOKIE_DOMAIN,
         COOKIE_SAMESITE: process.env.COOKIE_SAMESITE,
         TRUST_PROXY: process.env.TRUST_PROXY,
@@ -130,6 +132,7 @@ export const authConfig = {
         path: '/'
     },
     token: {
+        accessSecret: parsedEnv.JWT_ACCESS_SECRET,
         accessTtl: toJwtExpiresIn(process.env.ACCESS_TOKEN_TTL, DEFAULT_ACCESS_TTL),
         refreshTtl: toJwtExpiresIn(process.env.REFRESH_TOKEN_TTL, DEFAULT_REFRESH_TTL),
         accessMaxAgeMs: ttlToMs(process.env.ACCESS_TOKEN_TTL, 15 * 60 * 1000),

@@ -95,45 +95,42 @@ import { register } from './features/auth/utils/metrics.js';
 
 // Endpoint protegido para métricas con Autenticación Básica explícita.
 app.get('/metrics', async (req, res) => {
-    const isProd = process.env.NODE_ENV === 'production';
-    const metricsEnabled = process.env.METRICS_ENABLED === 'true';
-
-    if (isProd && !metricsEnabled) {
+    // Si la configuración no habilita explícitamente las métricas, devolvemos 404 en cualquier entorno.
+    if (process.env.METRICS_ENABLED !== 'true') {
         return res.status(404).send('Not Found');
     }
 
-    if (isProd && metricsEnabled) {
-        const metricsUser = process.env.METRICS_USERNAME;
-        const metricsPass = process.env.METRICS_PASSWORD;
+    const metricsUser = process.env.METRICS_USERNAME;
+    const metricsPass = process.env.METRICS_PASSWORD;
 
-        if (!metricsUser || !metricsPass) {
-            return res.status(500).json({ error: 'Métricas mal configuradas en producción' });
-        }
+    // A pesar de Zod, garantizamos un fail-close si por algún motivo bizarro los secretos están ausentes
+    if (!metricsUser || !metricsPass) {
+        return res.status(500).json({ error: 'Métricas habilitadas pero credenciales de acceso no configuradas.' });
+    }
 
-        const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
-        const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
 
-        const providedUserBuffer = Buffer.from(login || '');
-        const providedPassBuffer = Buffer.from(password || '');
-        const expectedUserBuffer = Buffer.from(metricsUser);
-        const expectedPassBuffer = Buffer.from(metricsPass);
+    const providedUserBuffer = Buffer.from(login || '');
+    const providedPassBuffer = Buffer.from(password || '');
+    const expectedUserBuffer = Buffer.from(metricsUser);
+    const expectedPassBuffer = Buffer.from(metricsPass);
 
-        // Prevención contra Timing Attacks en validación de credenciales
-        let validUser = false;
-        let validPass = false;
+    // Prevención contra Timing Attacks en validación de credenciales
+    let validUser = false;
+    let validPass = false;
 
-        if (providedUserBuffer.length === expectedUserBuffer.length) {
-            validUser = crypto.timingSafeEqual(providedUserBuffer, expectedUserBuffer);
-        }
+    if (providedUserBuffer.length === expectedUserBuffer.length) {
+        validUser = crypto.timingSafeEqual(providedUserBuffer, expectedUserBuffer);
+    }
 
-        if (providedPassBuffer.length === expectedPassBuffer.length) {
-            validPass = crypto.timingSafeEqual(providedPassBuffer, expectedPassBuffer);
-        }
+    if (providedPassBuffer.length === expectedPassBuffer.length) {
+        validPass = crypto.timingSafeEqual(providedPassBuffer, expectedPassBuffer);
+    }
 
-        if (!validUser || !validPass) {
-            res.set('WWW-Authenticate', 'Basic realm="metrics"');
-            return res.status(401).send('Authentication required.');
-        }
+    if (!validUser || !validPass) {
+        res.set('WWW-Authenticate', 'Basic realm="metrics"');
+        return res.status(401).send('Authentication required.');
     }
 
     try {
@@ -146,13 +143,13 @@ app.get('/metrics', async (req, res) => {
 
 import pool from './utils/db.js';
 
-// Liveness (El proceso Express corre y atiende peticiones)
+// Liveness: El proceso Express corre y atiende peticiones
 app.get('/health/live', (req, res) => {
     res.status(200).send('OK');
 });
 
-// Readiness (El sistema tiene dependencias, como la base de datos, en línea)
-// Reemplaza el antiguo /health, sirviendo ahora una versión más simple para evitar information disclosure
+// Readiness: El sistema tiene base de datos operativa, que es estrictamente
+// requerida para el funcionamiento del servidor de Auth.
 app.get('/health/ready', async (req, res) => {
     try {
         await pool.query('SELECT 1');
@@ -163,14 +160,12 @@ app.get('/health/ready', async (req, res) => {
     }
 });
 
-// Alias por compatibilidad con viejos deployers que usen el endpoint anterior
-// Se sirve 200 directo asumiendo 'ready', sin detalles del sistema ni formato extra.
+// Alias legacy asumiendo comportamiento de 'ready'
 app.get('/health', async (req, res) => {
     try {
         await pool.query('SELECT 1');
         res.status(200).send('OK');
     } catch (err) {
-        // Log solo interno. Neutro hacia afuera para no filtrar stack de base de datos.
         console.error('Healthcheck DB Readiness failed:', err.message);
         res.status(503).send('Not Ready');
     }
