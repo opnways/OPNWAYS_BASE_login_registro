@@ -13,6 +13,11 @@ export const verifyCsrf = (req, res, next) => {
         return res.error('Token CSRF faltante', 403);
     }
 
+    if (cookieToken.length !== 64 || headerToken.length !== 64 ||
+        !/^[0-9a-fA-F]+$/.test(cookieToken) || !/^[0-9a-fA-F]+$/.test(headerToken)) {
+        return res.error('Token CSRF malformado', 403);
+    }
+
     try {
         const cookieBuffer = Buffer.from(cookieToken, 'hex');
         const headerBuffer = Buffer.from(headerToken, 'hex');

@@ -56,6 +56,12 @@ router.use((req, res, next) => {
 const createLimiter = (maxRequests) => rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: maxRequests,
+    keyGenerator: (req) => {
+        // En un entorno "trust proxy = 1", req.ip es confiable *si* Nginx o el balanceador
+        // sobreescribe y elimina X-Forwarded-For originado por el cliente.
+        // req.socket.remoteAddress previene spoofing en entornos directos.
+        return req.ip || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+    },
     message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -71,9 +77,9 @@ const registerLimiter = createLimiter(10);
 const passwordSchema = z.string()
     .min(8, 'La contraseña debe tener al menos 8 caracteres')
     .max(128, 'La contraseña es demasiado larga') // Mitigar Hash DoS (Long Password DoS)
-    .regex(/[A-Z]/, 'La contraseña debe incluir al menos una mayúscula')
-    .regex(/[0-9]/, 'La contraseña debe incluir al menos un número')
-    .regex(/[^A-Za-z0-9]/, 'La contraseña debe incluir al menos un carácter especial');
+    .refine((val) => /[A-Z]/.test(val), 'La contraseña debe incluir al menos una mayúscula')
+    .refine((val) => /[0-9]/.test(val), 'La contraseña debe incluir al menos un número')
+    .refine((val) => /[^A-Za-z0-9]/.test(val), 'La contraseña debe incluir al menos un carácter especial');
 
 const registerSchema = z.object({
     email: z.string().trim().toLowerCase().email('Email inválido'),
