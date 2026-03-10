@@ -53,28 +53,38 @@ router.use((req, res, next) => {
     next();
 });
 
-const createLimiter = (maxRequests) => rateLimit({
+const createLimiter = (maxRequests, useIdentity = false) => rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: maxRequests,
     keyGenerator: (req) => {
+        const ip = req.ip || req.socket.remoteAddress;
+
+        // Rate Limiting Mixto: IP + Identidad (Email).
+        // Mitiga ataques de fuerza bruta distribuidos (múltiples IPs contra una sola cuenta)
+        // normalizando el email para evitar bypass por capitalización o espacios.
+        if (useIdentity && req.body && req.body.email) {
+            const email = String(req.body.email).trim().toLowerCase();
+            return `${ip}_${email}`;
+        }
+
         // NOTA TÉCNICA: NO leer manualmente 'x-forwarded-for' desde los headers.
         // Express ya puebla req.ip leyendo X-Forwarded-For SI 'trust proxy' está activo.
-        // Leerlo a mano permite que un atacante salte el límite inyectando headers falsos
-        // cuando el backend se despliega directamente sin un Reverse Proxy que los limpie.
-        // TODO: En un futuro, para endpoints como login/forgot, se recomienda un KeyGen mixto:
-        // `${req.ip}_${req.body.email?.trim().toLowerCase()}`
-        return req.ip || req.socket.remoteAddress;
+        // Leerlo a mano permite inyectar headers falsos.
+        return ip;
     },
     message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
     standardHeaders: true,
     legacyHeaders: false,
 });
 
-const loginLimiter = createLimiter(20);
-const forgotLimiter = createLimiter(5);
+// Los endpoints críticos por fuerza bruta ahora limitan por la tupla (IP + Email)
+const loginLimiter = createLimiter(20, true);
+const forgotLimiter = createLimiter(5, true);
+const registerLimiter = createLimiter(10, true);
+
+// Endpoints genéricos limitan solo por IP
 const resetLimiter = createLimiter(5);
 const refreshLimiter = createLimiter(60);
-const registerLimiter = createLimiter(10);
 
 
 const passwordSchema = z.string()
@@ -133,13 +143,15 @@ router.post('/login', loginLimiter, async (req, res) => {
         }
 
         const { email, password } = result.data;
-        const { user, accessToken, refreshToken } = await AuthService.login(email, password);
+        const context = { ip: req.ip || req.socket.remoteAddress, userAgent: req.headers['user-agent'] };
+        const { user, accessToken, refreshToken } = await AuthService.login(email, password, context);
 
         authCookies.setSessionCookies(res, accessToken, refreshToken);
 
         res.success({ user });
     } catch (err) {
-        console.error('Login error:', err.message);
+        // Log minimalista que no expone email en texto claro ante intentos de escaneo/brute-force
+        console.error(`Login attempt failed from IP ${req.ip || req.socket.remoteAddress}`);
         // Evita fugar si el usuario no existe. AuthService ya lanza 'Credenciales inválidas'.
         res.error('Credenciales inválidas.', 401);
     }
@@ -168,8 +180,9 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
             throw new Error('No se encontró token de refresco');
         }
 
+        const context = { ip: req.ip || req.socket.remoteAddress, userAgent: req.headers['user-agent'] };
         const hash = TokenService.hashToken(refreshToken);
-        const { accessToken, refreshToken: newRefreshToken } = await AuthService.refresh(hash);
+        const { accessToken, refreshToken: newRefreshToken } = await AuthService.refresh(hash, context);
 
         authCookies.setSessionCookies(res, accessToken, newRefreshToken);
 
@@ -178,8 +191,9 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
 
         res.success({ message: 'Token renovado exitosamente' });
     } catch (err) {
-        console.error('Refresh error:', err.message);
-        // Fix 8: Siempre mensaje genérico al cliente; detalles de seguridad quedan en el log
+        // En refresh, mantenemos el log genérico sin revelar token hashes
+        console.warn(`Refresh session failed from IP ${req.ip || req.socket.remoteAddress}`);
+        // Siempre mensaje genérico al cliente; detalles de seguridad quedan en el log
         res.error('Sesión inválida.', 401);
     }
 });
