@@ -44,37 +44,62 @@ const envSchema = z.object({
     APP_URL: z.string().url('APP_URL debe ser una URL válida (ej. https://midominio.com)'),
     API_URL: z.string().url('API_URL debe ser una URL válida (ej. https://api.midominio.com)'),
     JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET debe tener al menos 32 caracteres para seguridad'),
-    // JWT_REFRESH_SECRET ha sido eliminado por el diseño de Refresh Token opaco.
     CORS_ALLOWED_ORIGINS: z.string().min(1, 'CORS_ALLOWED_ORIGINS requerido')
-        // Validar lista separada por comas asegurando URLs válidas
         .refine((val) => val.split(',').every(url => {
             try { new URL(url.trim()); return true; } catch { return false; }
         }), 'CORS_ALLOWED_ORIGINS debe contener solo URLs válidas'),
     COOKIE_DOMAIN: z.string().optional(),
     COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
-    TRUST_PROXY: z.enum(['true', 'false']).default('false')
+    TRUST_PROXY: z.enum(['true', 'false']).default('false'),
+    METRICS_ENABLED: z.enum(['true', 'false']).default('false'),
+    METRICS_USERNAME: z.string().optional(),
+    METRICS_PASSWORD: z.string().optional()
 }).superRefine((data, ctx) => {
     // Si COOKIE_SAMESITE es 'none', es obligatorio que el entorno sea seguro
-    if (data.COOKIE_SAMESITE === 'none' && data.NODE_ENV !== 'production') {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "COOKIE_SAMESITE='none' requiere que la aplicación se sirva en HTTPS. Revisa tu NODE_ENV."
-        });
+    // Lo validamos mirando si las URLs provistas son HTTPS (mucho más robusto que mirar NODE_ENV)
+    if (data.COOKIE_SAMESITE === 'none') {
+        if (!data.APP_URL.startsWith('https://') || !data.API_URL.startsWith('https://')) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "COOKIE_SAMESITE='none' requiere que la aplicación (APP_URL y API_URL) se sirva en HTTPS."
+            });
+        }
+    }
+
+    if (data.NODE_ENV === 'production') {
+        if (data.APP_URL.includes('localhost')) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "APP_URL no puede usar localhost en producción." });
+        }
+        if (data.API_URL.includes('localhost')) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "API_URL no puede usar localhost en producción." });
+        }
+
+        if (data.METRICS_ENABLED === 'true') {
+            if (!data.METRICS_USERNAME || !data.METRICS_PASSWORD) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, message: "METRICS_USERNAME y METRICS_PASSWORD son requeridos en producción si METRICS_ENABLED es 'true'." });
+            }
+        }
     }
 });
 
 let parsedEnv;
 try {
+    const isProd = process.env.NODE_ENV === 'production';
+
+    // En producción NO ponemos defaults que tapen errores de configuración
     parsedEnv = envSchema.parse({
         NODE_ENV: process.env.NODE_ENV,
         APP_NAME: process.env.APP_NAME,
-        APP_URL: process.env.APP_URL || 'http://localhost:5173',
-        API_URL: process.env.API_URL || 'http://localhost:3000/api',
-        JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || (['development', 'test'].includes(process.env.NODE_ENV) ? 'dev_only_secret_access_do_not_use_in_prod_123' : ''),
-        CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173',
+        APP_URL: process.env.APP_URL || (isProd ? '' : 'http://localhost:5173'),
+        API_URL: process.env.API_URL || (isProd ? '' : 'http://localhost:3000/api'),
+        JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || (isProd ? '' : 'dev_only_secret_access_do_not_use_in_prod_123'),
+        CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || (isProd ? '' : 'http://localhost:5173'),
         COOKIE_DOMAIN: process.env.COOKIE_DOMAIN,
         COOKIE_SAMESITE: process.env.COOKIE_SAMESITE,
-        TRUST_PROXY: process.env.TRUST_PROXY
+        TRUST_PROXY: process.env.TRUST_PROXY,
+        METRICS_ENABLED: process.env.METRICS_ENABLED,
+        METRICS_USERNAME: process.env.METRICS_USERNAME,
+        METRICS_PASSWORD: process.env.METRICS_PASSWORD
     });
 } catch (err) {
     console.error('❌ CRITICAL ERROR: Configuración de entorno inválida o insegura. Abortando arranque.');

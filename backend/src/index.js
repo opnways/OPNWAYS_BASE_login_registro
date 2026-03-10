@@ -50,8 +50,11 @@ app.use(cors({
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     // Permitimos explícitamente X-Request-Id para evitar problemas de Preflight
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'x-request-id']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'x-request-id'],
+    // Exponer X-Request-Id al frontend
+    exposedHeaders: ['x-request-id']
 }));
+
 // Correlation ID Middleware para auditoría segura
 app.use((req, res, next) => {
     // Validar el request ID si viene del cliente. Si no cumple formato estricto (UUID), se rechaza
@@ -90,38 +93,41 @@ app.use('/api/auth', authRoutes);
 
 import { register } from './features/auth/utils/metrics.js';
 
-// Endpoint protegido para métricas con Autenticación Básica obligatoria.
-// Asume que la defensa en profundidad principal es red interna o proxy.
+// Endpoint protegido para métricas con Autenticación Básica explícita.
 app.get('/metrics', async (req, res) => {
-    const metricsPass = process.env.METRICS_PASSWORD;
     const isProd = process.env.NODE_ENV === 'production';
+    const metricsEnabled = process.env.METRICS_ENABLED === 'true';
 
-    // En producción se fuerza autenticación o proxy cerrado.
-    if (isProd && !metricsPass) {
-        console.warn("⚠️ METRICS_PASSWORD no definido en producción. Solo accesible vía proxy interno protegido.");
-        // Si no se define contraseña, deniega si no es tráfico local confiable (evitando frágil regex, confiando en red).
-        const ip = req.ip || req.socket.remoteAddress || '';
-        if (ip !== '127.0.0.1' && ip !== '::1') {
-            return res.status(403).json({ success: false, data: null, error: 'Acceso denegado.' });
-        }
+    if (isProd && !metricsEnabled) {
+        return res.status(404).send('Not Found');
     }
 
-    if (metricsPass) {
+    if (isProd && metricsEnabled) {
+        const metricsUser = process.env.METRICS_USERNAME;
+        const metricsPass = process.env.METRICS_PASSWORD;
+
+        if (!metricsUser || !metricsPass) {
+            return res.status(500).json({ error: 'Métricas mal configuradas en producción' });
+        }
+
         const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
         const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-        const metricsUser = process.env.METRICS_USER || 'admin';
+
+        const providedUserBuffer = Buffer.from(login || '');
+        const providedPassBuffer = Buffer.from(password || '');
+        const expectedUserBuffer = Buffer.from(metricsUser);
+        const expectedPassBuffer = Buffer.from(metricsPass);
 
         // Prevención contra Timing Attacks en validación de credenciales
         let validUser = false;
         let validPass = false;
 
-        try {
-            validUser = crypto.timingSafeEqual(Buffer.from(login || ''), Buffer.from(metricsUser));
-            validPass = crypto.timingSafeEqual(Buffer.from(password || ''), Buffer.from(metricsPass));
-        } catch (e) {
-            // Buffer length mismatch arroja excepción en timingSafeEqual
-            validUser = false;
-            validPass = false;
+        if (providedUserBuffer.length === expectedUserBuffer.length) {
+            validUser = crypto.timingSafeEqual(providedUserBuffer, expectedUserBuffer);
+        }
+
+        if (providedPassBuffer.length === expectedPassBuffer.length) {
+            validPass = crypto.timingSafeEqual(providedPassBuffer, expectedPassBuffer);
         }
 
         if (!validUser || !validPass) {
