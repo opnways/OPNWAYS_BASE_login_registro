@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { generateCsrfToken, verifyCsrf } from '../utils/csrf.js';
 import { authCookies } from './authCookies.js';
 import { authConfig } from '../utils/authConfig.js';
+import { createEmailRateLimiter } from '../utils/rateLimiter.js';
+import { AuthRepository } from '../repository/AuthRepository.js';
 
 import {
     authRequestsTotal,
@@ -53,23 +55,11 @@ router.use((req, res, next) => {
     next();
 });
 
-const createLimiter = (maxRequests, useIdentity = false) => rateLimit({
+const createLimiter = (maxRequests) => rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: maxRequests,
     keyGenerator: (req) => {
         const ip = req.ip || req.socket.remoteAddress;
-
-        // Rate Limiting Mixto: IP + Identidad (Email).
-        // Mitiga ataques de fuerza bruta distribuidos (múltiples IPs contra una sola cuenta)
-        // normalizando el email para evitar bypass por capitalización o espacios.
-        if (useIdentity && req.body && req.body.email) {
-            const email = String(req.body.email).trim().toLowerCase();
-            return `${ip}_${email}`;
-        }
-
-        // NOTA TÉCNICA: NO leer manualmente 'x-forwarded-for' desde los headers.
-        // Express ya puebla req.ip leyendo X-Forwarded-For SI 'trust proxy' está activo.
-        // Leerlo a mano permite inyectar headers falsos.
         return ip;
     },
     message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
@@ -77,10 +67,14 @@ const createLimiter = (maxRequests, useIdentity = false) => rateLimit({
     legacyHeaders: false,
 });
 
-// Los endpoints críticos por fuerza bruta ahora limitan por la tupla (IP + Email)
-const loginLimiter = createLimiter(20, true);
-const forgotLimiter = createLimiter(5, true);
-const registerLimiter = createLimiter(10, true);
+// Limitadores de primera capa (solo IP)
+const loginIpLimiter = createLimiter(20);
+const forgotIpLimiter = createLimiter(5);
+const registerLimiter = createLimiter(10); // Register solo por IP para evitar enumeración y DoS
+
+// Limitadores de segunda capa (solo Email)
+const loginEmailLimiter = createEmailRateLimiter(5);
+const forgotEmailLimiter = createEmailRateLimiter(3);
 
 // Endpoints genéricos limitan solo por IP
 const resetLimiter = createLimiter(5);
@@ -135,7 +129,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     }
 });
 
-router.post('/login', loginLimiter, async (req, res) => {
+router.post('/login', loginIpLimiter, loginEmailLimiter, async (req, res) => {
     try {
         const result = loginSchema.safeParse(req.body);
         if (!result.success) {
@@ -149,6 +143,10 @@ router.post('/login', loginLimiter, async (req, res) => {
         authCookies.setSessionCookies(res, accessToken, refreshToken);
 
         res.success({ user });
+
+        // Limpieza oportunista, se ejecuta de forma asíncrona sin bloquear la petición principal
+        AuthRepository.cleanupExpiredTokens().catch(e => console.error('Error cleanup DB:', e));
+
     } catch (err) {
         // Log minimalista que no expone email en texto claro ante intentos de escaneo/brute-force
         console.error(`Login attempt failed from IP ${req.ip || req.socket.remoteAddress}`);
@@ -190,6 +188,10 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
         authRefreshRevocationsTotal.inc({ reason: 'rotation' });
 
         res.success({ message: 'Token renovado exitosamente' });
+
+        // Limpieza oportunista, asíncrona (frecuencia natural con el refresco)
+        AuthRepository.cleanupExpiredTokens().catch(e => console.error('Error cleanup DB:', e));
+
     } catch (err) {
         // En refresh, mantenemos el log genérico sin revelar token hashes
         console.warn(`Refresh session failed from IP ${req.ip || req.socket.remoteAddress}`);
@@ -215,7 +217,7 @@ router.get('/me', async (req, res) => {
     }
 });
 
-router.post('/forgot', forgotLimiter, async (req, res) => {
+router.post('/forgot', forgotIpLimiter, forgotEmailLimiter, async (req, res) => {
     try {
         const result = forgotSchema.safeParse(req.body);
         if (!result.success) {

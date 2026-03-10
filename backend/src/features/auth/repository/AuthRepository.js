@@ -103,5 +103,20 @@ export const AuthRepository = {
         // Suggested Index: CREATE INDEX idx_refresh_tokens_active ON refresh_tokens (revoked_at, expires_at);
         const res = await query('SELECT COUNT(*) FROM refresh_tokens WHERE revoked_at IS NULL AND expires_at > NOW()');
         return parseInt(res.rows[0].count, 10) || 0;
+    },
+
+    async cleanupExpiredTokens(client = null) {
+        const executor = client || { query };
+        // Limpieza oportunista: Elimina físicamente tokens caducados hace más de 7 días
+        // para mantener la tabla limpia sin necesidad de un cron.
+        // También limpia reset tokens muy antiguos.
+        await executor.query(`
+            DELETE FROM refresh_tokens
+            WHERE expires_at < NOW() - INTERVAL '7 days';
+        `);
+        await executor.query(`
+            DELETE FROM password_reset_tokens
+            WHERE expires_at < NOW() - INTERVAL '7 days';
+        `);
     }
 };
