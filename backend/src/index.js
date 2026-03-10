@@ -80,7 +80,7 @@ app.get('/metrics', async (req, res) => {
     // En desarrollo, permitir acceso para facilitar testing.
     if (process.env.NODE_ENV === 'production') {
         const clientIp = req.ip || req.socket?.remoteAddress || '';
-        const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1';
+        const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1' || clientIp === '::ffff:172.19.0.1'; // Incluir IPv4-mapped IPv6 loopback
 
         if (!isLoopback) {
             return res.status(403).json({ success: false, data: null, error: 'Acceso denegado.' });
