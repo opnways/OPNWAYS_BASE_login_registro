@@ -49,7 +49,8 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
+    // Permitimos explícitamente X-Request-Id para evitar problemas de Preflight
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'x-request-id']
 }));
 // Correlation ID Middleware para auditoría segura
 app.use((req, res, next) => {
@@ -89,25 +90,41 @@ app.use('/api/auth', authRoutes);
 
 import { register } from './features/auth/utils/metrics.js';
 
-// Mejorar protección de /metrics. Retiene loopback check si no hay password para mantener seguridad por defecto.
+// Endpoint protegido para métricas con Autenticación Básica obligatoria.
+// Asume que la defensa en profundidad principal es red interna o proxy.
 app.get('/metrics', async (req, res) => {
     const metricsPass = process.env.METRICS_PASSWORD;
+    const isProd = process.env.NODE_ENV === 'production';
 
-    // Si NO hay contraseña configurada en producción, mantenemos el comportamiento default seguro (Loopback only)
-    if (!metricsPass && process.env.NODE_ENV === 'production') {
-        const clientIp = req.ip || req.socket?.remoteAddress || '';
-        const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1' || clientIp === '::ffff:172.19.0.1';
-
-        if (!isLoopback) {
+    // En producción se fuerza autenticación o proxy cerrado.
+    if (isProd && !metricsPass) {
+        console.warn("⚠️ METRICS_PASSWORD no definido en producción. Solo accesible vía proxy interno protegido.");
+        // Si no se define contraseña, deniega si no es tráfico local confiable (evitando frágil regex, confiando en red).
+        const ip = req.ip || req.socket.remoteAddress || '';
+        if (ip !== '127.0.0.1' && ip !== '::1') {
             return res.status(403).json({ success: false, data: null, error: 'Acceso denegado.' });
         }
-    } else if (metricsPass) {
-        // Si hay password, se exige SIEMPRE (incluso en dev o desde otra IP interna)
+    }
+
+    if (metricsPass) {
         const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
         const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
         const metricsUser = process.env.METRICS_USER || 'admin';
 
-        if (login !== metricsUser || password !== metricsPass) {
+        // Prevención contra Timing Attacks en validación de credenciales
+        let validUser = false;
+        let validPass = false;
+
+        try {
+            validUser = crypto.timingSafeEqual(Buffer.from(login || ''), Buffer.from(metricsUser));
+            validPass = crypto.timingSafeEqual(Buffer.from(password || ''), Buffer.from(metricsPass));
+        } catch (e) {
+            // Buffer length mismatch arroja excepción en timingSafeEqual
+            validUser = false;
+            validPass = false;
+        }
+
+        if (!validUser || !validPass) {
             res.set('WWW-Authenticate', 'Basic realm="metrics"');
             return res.status(401).send('Authentication required.');
         }
@@ -141,14 +158,15 @@ app.get('/health/ready', async (req, res) => {
 });
 
 // Alias por compatibilidad con viejos deployers que usen el endpoint anterior
-// Se delega al middleware interno y se sirve 200 directo para no romper balanceadores tontos que fallan en 301.
+// Se sirve 200 directo asumiendo 'ready', sin detalles del sistema ni formato extra.
 app.get('/health', async (req, res) => {
     try {
         await pool.query('SELECT 1');
-        res.success({ status: 'up', database: 'connected' });
+        res.status(200).send('OK');
     } catch (err) {
+        // Log solo interno. Neutro hacia afuera para no filtrar stack de base de datos.
         console.error('Healthcheck DB Readiness failed:', err.message);
-        res.status(503).json({ success: false, data: null, error: 'Servicio no disponible' });
+        res.status(503).send('Not Ready');
     }
 });
 

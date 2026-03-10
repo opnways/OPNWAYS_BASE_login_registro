@@ -41,14 +41,26 @@ import { z } from 'zod';
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     APP_NAME: z.string().default('Auth Starter'),
-    APP_URL: z.string().url(),
-    API_URL: z.string().url(),
+    APP_URL: z.string().url('APP_URL debe ser una URL válida (ej. https://midominio.com)'),
+    API_URL: z.string().url('API_URL debe ser una URL válida (ej. https://api.midominio.com)'),
     JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET debe tener al menos 32 caracteres para seguridad'),
     // JWT_REFRESH_SECRET ha sido eliminado por el diseño de Refresh Token opaco.
-    CORS_ALLOWED_ORIGINS: z.string().min(1),
+    CORS_ALLOWED_ORIGINS: z.string().min(1, 'CORS_ALLOWED_ORIGINS requerido')
+        // Validar lista separada por comas asegurando URLs válidas
+        .refine((val) => val.split(',').every(url => {
+            try { new URL(url.trim()); return true; } catch { return false; }
+        }), 'CORS_ALLOWED_ORIGINS debe contener solo URLs válidas'),
     COOKIE_DOMAIN: z.string().optional(),
     COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
     TRUST_PROXY: z.enum(['true', 'false']).default('false')
+}).superRefine((data, ctx) => {
+    // Si COOKIE_SAMESITE es 'none', es obligatorio que el entorno sea seguro
+    if (data.COOKIE_SAMESITE === 'none' && data.NODE_ENV !== 'production') {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "COOKIE_SAMESITE='none' requiere que la aplicación se sirva en HTTPS. Revisa tu NODE_ENV."
+        });
+    }
 });
 
 let parsedEnv;
