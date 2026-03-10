@@ -1,0 +1,38 @@
+# docker-compose.prod.yml
+# Variante orientada a Producción para sobreescribir configuraciones de desarrollo
+version: '3.8'
+
+services:
+  db:
+    # No exponer puerto local 5432 al mundo exterior
+    ports: []
+    # Asegurar que la BD se autoreinicie si cae
+    restart: unless-stopped
+    # Parámetros básicos para que la BD consuma menos RAM o ajustar logs (opcional)
+
+  backend:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    # Volúmenes de código fuente NO montados en producción
+    volumes: []
+    environment:
+      NODE_ENV: production
+    # Puerto 3000 NO expuesto al host — el backend es accesible únicamente a través de la
+    # red interna de Docker (desde el reverse proxy). Nunca debe ser reachable desde internet.
+    ports: []
+
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+    restart: unless-stopped
+    volumes: []
+    # El Frontend en producción corre por Nginx internamente
+    ports:
+      - "80:80"
+
+  # En producción el Mailhog se elimina
+  mailhog:
+    profiles: [ "dev" ]

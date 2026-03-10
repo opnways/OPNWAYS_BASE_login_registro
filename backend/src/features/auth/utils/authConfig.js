@@ -51,9 +51,15 @@ export const authConfig = {
         accessTokenName: process.env.COOKIE_NAME_ACCESS || 'access_token',
         refreshTokenName: process.env.COOKIE_NAME_REFRESH || 'refresh_token',
         csrfTokenName: 'csrf_token',
+        // COOKIE_DOMAIN debe especificarse en producción para dominios multi-tier (e.g. .midominio.com).
+        // Evita undefined para que no se use solo localhost-only o un host demasiado amplio por defecto.
         domain: process.env.COOKIE_DOMAIN || undefined,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        // 'lax' es correcto si app y auth.midominio.com navegan,
+        // pero se usa 'strict' si se alojan estrictamente bajo la MISMA url visible de host
+        // y se prefiere no arriesgar ataques cross-site por default.
+        // Dado el escenario A de subdominios, 'lax' es suficiente mientras el domain sea estricto.
+        sameSite: process.env.COOKIE_SAMESITE || 'lax',
         path: '/'
     },
     token: {
