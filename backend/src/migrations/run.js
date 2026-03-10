@@ -18,12 +18,18 @@ async function runMigrations() {
     const client = await pool.connect();
     try {
         console.log('Running migrations...');
-        const migrationFile = path.join(__dirname, '001_initial_schema.sql');
-        const sql = fs.readFileSync(migrationFile, 'utf8');
+        // Run migrations sequentially
+        const migrations = ['001_initial_schema.sql', '002_add_indexes.sql'];
 
-        await client.query('BEGIN');
-        await client.query(sql);
-        await client.query('COMMIT');
+        for (const file of migrations) {
+            const migrationFile = path.join(__dirname, file);
+            const sql = fs.readFileSync(migrationFile, 'utf8');
+
+            console.log(`Running migration: ${file}`);
+            await client.query('BEGIN');
+            await client.query(sql);
+            await client.query('COMMIT');
+        }
 
         console.log('Migrations completed successfully.');
     } catch (err) {
