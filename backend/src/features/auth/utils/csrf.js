@@ -5,6 +5,13 @@ export const generateCsrfToken = () => {
     return crypto.randomBytes(32).toString('hex');
 };
 
+// NOTA TÉCNICA (Double-Submit Cookie):
+// Este modelo es stateless y asume que el subdominio no está comprometido.
+// La validación en tiempo constante se mantiene para evitar enumeración.
+// Una limitación real es que un atacante que controle otro subdominio (ej. vulnerable.dominio.com)
+// podría sobreescribir la cookie en auth.dominio.com (Session fixation).
+// Si esto se vuelve un riesgo explotable en la topología real, se migrará a CSRF Tokens stateful
+// vinculados al access_token (vía JWT claim).
 export const verifyCsrf = (req, res, next) => {
     const cookieToken = req.cookies[authConfig.cookies.csrfTokenName];
     const headerToken = req.headers['x-csrf-token'];

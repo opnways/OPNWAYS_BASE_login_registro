@@ -20,6 +20,9 @@ export const AuthRepository = {
         return res.rows[0];
     },
 
+    // TODO (Higiene de sesiones): En una futura migración, añadir metadatos como `ip`, `user_agent`
+    // e instrumentar `last_used_at` para permitir depuración robusta y gestión de sesiones cruzadas
+    // por el usuario sin reventar la arquitectura existente.
     async saveRefreshToken(userId, tokenHash, expiresAt, client = null) {
         const executor = client || { query };
         const res = await executor.query(

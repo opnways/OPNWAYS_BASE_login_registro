@@ -57,10 +57,13 @@ const createLimiter = (maxRequests) => rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: maxRequests,
     keyGenerator: (req) => {
-        // En un entorno "trust proxy = 1", req.ip es confiable *si* Nginx o el balanceador
-        // sobreescribe y elimina X-Forwarded-For originado por el cliente.
-        // req.socket.remoteAddress previene spoofing en entornos directos.
-        return req.ip || req.socket.remoteAddress || req.headers['x-forwarded-for'];
+        // NOTA TÉCNICA: NO leer manualmente 'x-forwarded-for' desde los headers.
+        // Express ya puebla req.ip leyendo X-Forwarded-For SI 'trust proxy' está activo.
+        // Leerlo a mano permite que un atacante salte el límite inyectando headers falsos
+        // cuando el backend se despliega directamente sin un Reverse Proxy que los limpie.
+        // TODO: En un futuro, para endpoints como login/forgot, se recomienda un KeyGen mixto:
+        // `${req.ip}_${req.body.email?.trim().toLowerCase()}`
+        return req.ip || req.socket.remoteAddress;
     },
     message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
     standardHeaders: true,
@@ -137,7 +140,8 @@ router.post('/login', loginLimiter, async (req, res) => {
         res.success({ user });
     } catch (err) {
         console.error('Login error:', err.message);
-        res.error(err.message, 401);
+        // Evita fugar si el usuario no existe. AuthService ya lanza 'Credenciales inválidas'.
+        res.error('Credenciales inválidas.', 401);
     }
 });
 
@@ -191,8 +195,9 @@ router.get('/me', async (req, res) => {
         const user = await AuthService.getMe(decoded.sub);
         res.success(user);
     } catch (err) {
-        // Silent fail for me endpoint to avoid log noise on checkSession
-        res.error(err.message, 401);
+        // Silent fail for me endpoint to avoid log noise on checkSession.
+        // Nunca exponer err.message al cliente para evitar enumeración y filtración.
+        res.error('No autenticado', 401);
     }
 });
 
