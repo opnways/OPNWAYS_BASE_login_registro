@@ -35,13 +35,49 @@ const ttlToMs = (value, fallbackMs) => {
     return amount * unitMap[unit];
 };
 
+import { z } from 'zod';
+
+// Validar y endurecer configuración crítica en el arranque (Fail-Fast)
+const envSchema = z.object({
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    APP_NAME: z.string().default('Auth Starter'),
+    APP_URL: z.string().url(),
+    API_URL: z.string().url(),
+    JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET debe tener al menos 32 caracteres para seguridad'),
+    // JWT_REFRESH_SECRET ha sido eliminado por el diseño de Refresh Token opaco.
+    CORS_ALLOWED_ORIGINS: z.string().min(1),
+    COOKIE_DOMAIN: z.string().optional(),
+    COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+    TRUST_PROXY: z.enum(['true', 'false']).default('false')
+});
+
+let parsedEnv;
+try {
+    parsedEnv = envSchema.parse({
+        NODE_ENV: process.env.NODE_ENV,
+        APP_NAME: process.env.APP_NAME,
+        APP_URL: process.env.APP_URL || 'http://localhost:5173',
+        API_URL: process.env.API_URL || 'http://localhost:3000/api',
+        JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || (['development', 'test'].includes(process.env.NODE_ENV) ? 'dev_only_secret_access_do_not_use_in_prod_123' : ''),
+        CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173',
+        COOKIE_DOMAIN: process.env.COOKIE_DOMAIN,
+        COOKIE_SAMESITE: process.env.COOKIE_SAMESITE,
+        TRUST_PROXY: process.env.TRUST_PROXY
+    });
+} catch (err) {
+    console.error('❌ CRITICAL ERROR: Configuración de entorno inválida o insegura. Abortando arranque.');
+    console.error(err.errors);
+    process.exit(1);
+}
+
 export const authConfig = {
     app: {
-        name: process.env.APP_NAME || 'Auth Starter',
-        appUrl: process.env.APP_URL || 'http://localhost:5173',
-        apiUrl: process.env.API_URL || 'http://localhost:3000/api'
+        name: parsedEnv.APP_NAME,
+        appUrl: parsedEnv.APP_URL,
+        apiUrl: parsedEnv.API_URL,
+        trustProxy: parsedEnv.TRUST_PROXY === 'true'
     },
-    corsAllowedOrigins: toArray(process.env.CORS_ALLOWED_ORIGINS, [process.env.FRONTEND_URL || 'http://localhost:5173']),
+    corsAllowedOrigins: toArray(parsedEnv.CORS_ALLOWED_ORIGINS),
     redirects: {
         loginSuccess: process.env.LOGIN_SUCCESS_REDIRECT || '/dashboard',
         logout: process.env.LOGOUT_REDIRECT || '/login',
@@ -51,15 +87,9 @@ export const authConfig = {
         accessTokenName: process.env.COOKIE_NAME_ACCESS || 'access_token',
         refreshTokenName: process.env.COOKIE_NAME_REFRESH || 'refresh_token',
         csrfTokenName: 'csrf_token',
-        // COOKIE_DOMAIN debe especificarse en producción para dominios multi-tier (e.g. .midominio.com).
-        // Evita undefined para que no se use solo localhost-only o un host demasiado amplio por defecto.
-        domain: process.env.COOKIE_DOMAIN || undefined,
-        secure: process.env.NODE_ENV === 'production',
-        // 'lax' es correcto si app y auth.midominio.com navegan,
-        // pero se usa 'strict' si se alojan estrictamente bajo la MISMA url visible de host
-        // y se prefiere no arriesgar ataques cross-site por default.
-        // Dado el escenario A de subdominios, 'lax' es suficiente mientras el domain sea estricto.
-        sameSite: process.env.COOKIE_SAMESITE || 'lax',
+        domain: parsedEnv.COOKIE_DOMAIN || undefined,
+        secure: parsedEnv.NODE_ENV === 'production',
+        sameSite: parsedEnv.COOKIE_SAMESITE,
         path: '/'
     },
     token: {

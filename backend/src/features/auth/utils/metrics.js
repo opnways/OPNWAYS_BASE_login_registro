@@ -4,10 +4,11 @@ import { AuthRepository } from '../repository/AuthRepository.js';
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
 
+// Asegurar que solo endpoints explícitos entren en los labels limitando cardinalidad en el router
 export const authRequestsTotal = new client.Counter({
     name: 'auth_requests_total',
     help: 'Total processed auth requests',
-    labelNames: ['endpoint', 'status'],
+    labelNames: ['endpoint', 'status'], // Endpoint y status ya vienen parseados y filtrados de antemano. No inyectar request_id o IPs aquí.
     registers: [register]
 });
 

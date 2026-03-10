@@ -13,8 +13,13 @@ const port = process.env.PORT || 3000;
 
 import { authConfig } from './features/auth/utils/authConfig.js';
 
-// Confiar en Reverse Proxies en Producción para Rate Limiting
-app.set('trust proxy', 1);
+// Confiar en Reverse Proxies en Producción de forma dinámica (Configurable vía Zod).
+// NOTA TÉCNICA: Solo activar TRUST_PROXY=true cuando la API se encuentra
+// detrás de un Reverse Proxy confiable (Nginx, ALB, etc.) que sobreescriba y sanee
+// la cabecera X-Forwarded-For para prevenir IP Spoofing por parte del cliente.
+if (authConfig.app.trustProxy) {
+    app.set('trust proxy', 1);
+}
 
 // Middleware
 // Endurecimiento explícito de headers HTTP con Helmet
@@ -46,9 +51,19 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
 }));
-// Correlation ID Middleware para auditoría
+// Correlation ID Middleware para auditoría segura
 app.use((req, res, next) => {
-    req.id = req.headers['x-request-id'] || crypto.randomUUID();
+    // Validar el request ID si viene del cliente. Si no cumple formato estricto (UUID), se rechaza
+    // y se regenera uno propio. Esto evita Log Forging, Injection y cross-site tracing malicioso.
+    const incomingReqId = req.headers['x-request-id'];
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    if (incomingReqId && uuidRegex.test(incomingReqId)) {
+        req.id = incomingReqId;
+    } else {
+        req.id = crypto.randomUUID();
+    }
+
     res.setHeader('X-Request-Id', req.id);
     next();
 });
@@ -74,22 +89,20 @@ app.use('/api/auth', authRoutes);
 
 import { register } from './features/auth/utils/metrics.js';
 
+// Mejorar protección de /metrics. Retiene loopback check si no hay password para mantener seguridad por defecto.
 app.get('/metrics', async (req, res) => {
-    console.log('NODE_ENV:', process.env.NODE_ENV, 'IP:', req.ip);
-    // Bloquear acceso desde IPs que no sean loopback (127.0.0.1 / ::1) en producción.
-    // En desarrollo, permitir acceso para facilitar testing.
-    if (process.env.NODE_ENV === 'production') {
+    const metricsPass = process.env.METRICS_PASSWORD;
+
+    // Si NO hay contraseña configurada en producción, mantenemos el comportamiento default seguro (Loopback only)
+    if (!metricsPass && process.env.NODE_ENV === 'production') {
         const clientIp = req.ip || req.socket?.remoteAddress || '';
-        const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1' || clientIp === '::ffff:172.19.0.1'; // Incluir IPv4-mapped IPv6 loopback
+        const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1' || clientIp === '::ffff:172.19.0.1';
 
         if (!isLoopback) {
             return res.status(403).json({ success: false, data: null, error: 'Acceso denegado.' });
         }
-    }
-
-    // Si METRICS_PASSWORD está definido, exigir autenticación básica (en cualquier entorno).
-    const metricsPass = process.env.METRICS_PASSWORD;
-    if (metricsPass) {
+    } else if (metricsPass) {
+        // Si hay password, se exige SIEMPRE (incluso en dev o desde otra IP interna)
         const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
         const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
         const metricsUser = process.env.METRICS_USER || 'admin';
@@ -104,19 +117,37 @@ app.get('/metrics', async (req, res) => {
         res.set('Content-Type', register.contentType);
         res.end(await register.metrics());
     } catch (err) {
-        res.status(500).end(err.message);
+        res.status(500).end('Error al recolectar métricas');
     }
 });
 
 import pool from './utils/db.js';
 
+// Liveness (El proceso Express corre y atiende peticiones)
+app.get('/health/live', (req, res) => {
+    res.status(200).send('OK');
+});
+
+// Readiness (El sistema tiene dependencias, como la base de datos, en línea)
+// Reemplaza el antiguo /health, sirviendo ahora una versión más simple para evitar information disclosure
+app.get('/health/ready', async (req, res) => {
+    try {
+        await pool.query('SELECT 1');
+        res.status(200).send('OK');
+    } catch (err) {
+        console.error('Healthcheck DB Readiness failed:', err.message);
+        res.status(503).send('Not Ready');
+    }
+});
+
+// Alias por compatibilidad con viejos deployers que usen el endpoint anterior
+// Se delega al middleware interno y se sirve 200 directo para no romper balanceadores tontos que fallan en 301.
 app.get('/health', async (req, res) => {
     try {
-        // Readiness check simple a BD
         await pool.query('SELECT 1');
         res.success({ status: 'up', database: 'connected' });
     } catch (err) {
-        console.error('Healthcheck failed:', err.message);
+        console.error('Healthcheck DB Readiness failed:', err.message);
         res.status(503).json({ success: false, data: null, error: 'Servicio no disponible' });
     }
 });

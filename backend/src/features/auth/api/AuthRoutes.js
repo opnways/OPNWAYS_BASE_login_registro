@@ -56,6 +56,15 @@ router.use((req, res, next) => {
 const createLimiter = (maxRequests) => rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: maxRequests,
+    keyGenerator: (req) => {
+        // NOTA TÉCNICA: NO leer manualmente 'x-forwarded-for' desde los headers.
+        // Express ya puebla req.ip leyendo X-Forwarded-For SI 'trust proxy' está activo.
+        // Leerlo a mano permite que un atacante salte el límite inyectando headers falsos
+        // cuando el backend se despliega directamente sin un Reverse Proxy que los limpie.
+        // TODO: En un futuro, para endpoints como login/forgot, se recomienda un KeyGen mixto:
+        // `${req.ip}_${req.body.email?.trim().toLowerCase()}`
+        return req.ip || req.socket.remoteAddress;
+    },
     message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -71,9 +80,9 @@ const registerLimiter = createLimiter(10);
 const passwordSchema = z.string()
     .min(8, 'La contraseña debe tener al menos 8 caracteres')
     .max(128, 'La contraseña es demasiado larga') // Mitigar Hash DoS (Long Password DoS)
-    .regex(/[A-Z]/, 'La contraseña debe incluir al menos una mayúscula')
-    .regex(/[0-9]/, 'La contraseña debe incluir al menos un número')
-    .regex(/[^A-Za-z0-9]/, 'La contraseña debe incluir al menos un carácter especial');
+    .refine((val) => /[A-Z]/.test(val), 'La contraseña debe incluir al menos una mayúscula')
+    .refine((val) => /[0-9]/.test(val), 'La contraseña debe incluir al menos un número')
+    .refine((val) => /[^A-Za-z0-9]/.test(val), 'La contraseña debe incluir al menos un carácter especial');
 
 const registerSchema = z.object({
     email: z.string().trim().toLowerCase().email('Email inválido'),
@@ -131,7 +140,8 @@ router.post('/login', loginLimiter, async (req, res) => {
         res.success({ user });
     } catch (err) {
         console.error('Login error:', err.message);
-        res.error(err.message, 401);
+        // Evita fugar si el usuario no existe. AuthService ya lanza 'Credenciales inválidas'.
+        res.error('Credenciales inválidas.', 401);
     }
 });
 
@@ -185,8 +195,9 @@ router.get('/me', async (req, res) => {
         const user = await AuthService.getMe(decoded.sub);
         res.success(user);
     } catch (err) {
-        // Silent fail for me endpoint to avoid log noise on checkSession
-        res.error(err.message, 401);
+        // Silent fail for me endpoint to avoid log noise on checkSession.
+        // Nunca exponer err.message al cliente para evitar enumeración y filtración.
+        res.error('No autenticado', 401);
     }
 });
 
