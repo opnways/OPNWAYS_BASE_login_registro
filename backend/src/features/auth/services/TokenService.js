@@ -14,7 +14,13 @@ const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev_only_secret_refres
 
 export const TokenService = {
     generateTokenPair(userId) {
-        const accessToken = jwt.sign({ sub: userId }, ACCESS_SECRET, { expiresIn: authConfig.token.accessTtl });
+        const payload = {
+            sub: userId,
+            iss: authConfig.app.apiUrl,
+            aud: authConfig.app.appUrl,
+            jti: crypto.randomUUID()
+        };
+        const accessToken = jwt.sign(payload, ACCESS_SECRET, { expiresIn: authConfig.token.accessTtl });
         const refreshTokenPlain = crypto.randomBytes(40).toString('hex');
         const refreshTokenHash = this.hashToken(refreshTokenPlain);
         const expiresAt = new Date(Date.now() + authConfig.token.refreshMaxAgeMs);
@@ -24,7 +30,10 @@ export const TokenService = {
 
     verifyAccessToken(token) {
         try {
-            return jwt.verify(token, ACCESS_SECRET);
+            return jwt.verify(token, ACCESS_SECRET, {
+                issuer: authConfig.app.apiUrl,
+                audience: authConfig.app.appUrl
+            });
         } catch (err) {
             return null;
         }
