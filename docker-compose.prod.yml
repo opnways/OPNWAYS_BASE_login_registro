@@ -1,38 +1,65 @@
-# docker-compose.prod.yml
-# Variante orientada a Producción para sobreescribir configuraciones de desarrollo
-version: '3.8'
-
 services:
   db:
-    # No exponer puerto local 5432 al mundo exterior
-    ports: []
-    # Asegurar que la BD se autoreinicie si cae
+    image: postgres:15-alpine
+    container_name: auth-starter-db
     restart: unless-stopped
-    # Parámetros básicos para que la BD consuma menos RAM o ajustar logs (opcional)
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   backend:
     build:
       context: ./backend
       target: production
+    container_name: auth-starter-backend
     restart: unless-stopped
-    # Volúmenes de código fuente NO montados en producción
-    volumes: []
     environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      PORT: 3000
+      APP_NAME: ${APP_NAME}
+      APP_URL: ${APP_URL}
+      API_URL: ${API_URL}
+      FRONTEND_URL: ${APP_URL}
+      COOKIE_NAME_ACCESS: ${COOKIE_NAME_ACCESS}
+      COOKIE_NAME_REFRESH: ${COOKIE_NAME_REFRESH}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL}
+      LOGIN_SUCCESS_REDIRECT: ${LOGIN_SUCCESS_REDIRECT}
+      LOGOUT_REDIRECT: ${LOGOUT_REDIRECT}
+      DEFAULT_AUTH_REDIRECT: ${DEFAULT_AUTH_REDIRECT}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       NODE_ENV: production
-    # Puerto 3000 NO expuesto al host — el backend es accesible únicamente a través de la
-    # red interna de Docker (desde el reverse proxy). Nunca debe ser reachable desde internet.
-    ports: []
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      EMAIL_FROM: ${EMAIL_FROM}
+    depends_on:
+      - db
 
   frontend:
     build:
       context: ./frontend
       target: production
+    container_name: auth-starter-frontend
     restart: unless-stopped
-    volumes: []
-    # El Frontend en producción corre por Nginx internamente
     ports:
       - "80:80"
+    environment:
+      VITE_APP_NAME: ${VITE_APP_NAME}
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_AUTH_LOGIN_REDIRECT: ${VITE_AUTH_LOGIN_REDIRECT}
+      VITE_AUTH_LOGOUT_REDIRECT: ${VITE_AUTH_LOGOUT_REDIRECT}
+      VITE_DEFAULT_PUBLIC_ROUTE: ${VITE_DEFAULT_PUBLIC_ROUTE}
+    depends_on:
+      - backend
 
-  # En producción el Mailhog se elimina
-  mailhog:
-    profiles: [ "dev" ]
+volumes:
+  postgres_data:
