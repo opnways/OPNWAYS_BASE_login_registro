@@ -41,6 +41,8 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       EMAIL_FROM: ${EMAIL_FROM}
+    expose:
+      - "3000"
     depends_on:
       - db
 
@@ -50,14 +52,14 @@ services:
       target: production
     container_name: auth-starter-frontend
     restart: unless-stopped
-    ports:
-      - "80:80"
     environment:
       VITE_APP_NAME: ${VITE_APP_NAME}
       VITE_API_URL: ${VITE_API_URL}
       VITE_AUTH_LOGIN_REDIRECT: ${VITE_AUTH_LOGIN_REDIRECT}
       VITE_AUTH_LOGOUT_REDIRECT: ${VITE_AUTH_LOGOUT_REDIRECT}
       VITE_DEFAULT_PUBLIC_ROUTE: ${VITE_DEFAULT_PUBLIC_ROUTE}
+    expose:
+      - "80"
     depends_on:
       - backend
 
