@@ -186,6 +186,6 @@ app.use((err, req, res, next) => {
     res.error('Ocurrió un error interno del servidor.', 500);
 });
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
     console.log(`Backend listening at http://localhost:${port}`);
 });
