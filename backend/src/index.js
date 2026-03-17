@@ -11,6 +11,8 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+app.disable('etag'); // Deshabilita la generación de ETag para evitar respuestas 304
+
 import { authConfig } from './features/auth/utils/authConfig.js';
 
 // Confiar en Reverse Proxies en Producción de forma dinámica (Configurable vía Zod).
