@@ -6,6 +6,18 @@ const api = axios.create({
     withCredentials: true
 });
 
+// Interceptor para manejar errores 401 y evitar que se muestren en consola
+api.interceptors.response.use(
+    response => response,
+    error => {
+        if (error.response && error.response.status === 401) {
+            // Manejar el error 401 sin loguearlo
+            return Promise.resolve({ data: null });
+        }
+        return Promise.reject(error);
+    }
+);
+
 // Interceptor para leer la cookie csrf_token expuesta y adjuntarla como Header
 api.interceptors.request.use((config) => {
     const match = document.cookie.match(/(?:^|; )csrf_token=([^;]+)/);
