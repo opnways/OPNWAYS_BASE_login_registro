@@ -21,7 +21,7 @@ export function createAuthService({ repo, tokenService, emailSender, getDbClient
             return user;
         },
 
-        async login(email, password) {
+        async login(email, password, context = {}) {
             const user = await repo.findUserByEmail(email);
 
             // Fix 3: Ejecutar siempre argon2.verify para evitar timing attack (enumeración de usuarios)
@@ -30,9 +30,10 @@ export function createAuthService({ repo, tokenService, emailSender, getDbClient
 
             if (!user || !valid) throw new Error('Credenciales inválidas');
 
-            // Fix 4: TokenService solo genera tokens; AuthService persiste el refresh token
+            // Fix 4: TokenService solo genera tokens; AuthService persiste el refresh token.
+            // Pasa metadatos del request context para higiene de sesión si están disponibles.
             const { accessToken, refreshToken, refreshTokenHash, expiresAt } = tokenService.generateTokenPair(user.id);
-            await repo.saveRefreshToken(user.id, refreshTokenHash, expiresAt);
+            await repo.saveRefreshToken(user.id, refreshTokenHash, expiresAt, null, context.ip, context.userAgent);
 
             return { user: { id: user.id, email: user.email }, accessToken, refreshToken };
         },
@@ -44,16 +45,20 @@ export function createAuthService({ repo, tokenService, emailSender, getDbClient
             }
         },
 
-        async refresh(refreshTokenHash) {
+        async refresh(refreshTokenHash, context = {}) {
             const client = await getDbClient();
+            let isTxActive = false;
+
             try {
                 await client.query('BEGIN');
+                isTxActive = true;
 
                 const tokenData = await repo.findRefreshTokenAllStates(refreshTokenHash, client);
 
                 // Caso 1: El token base no existe en absoluto (ha sido borrado o es falso)
                 if (!tokenData) {
                     await client.query('ROLLBACK');
+                    isTxActive = false;
                     throw new Error('Token de refresco inválido o modificado');
                 }
 
@@ -62,26 +67,34 @@ export function createAuthService({ repo, tokenService, emailSender, getDbClient
                     // Castigo de Reúso: revoca TODOS los tokens del usuario real
                     await repo.revokeAllUserRefreshTokens(tokenData.user_id, client);
                     await client.query('COMMIT');
+                    isTxActive = false;
 
-                    // Fix 8: Log detallado interno; el cliente recibe un mensaje genérico desde AuthRoutes
-                    console.error(`[SECURITY ALERT] Refresh token reuse detected! User UUID: ${tokenData.user_id}. All sessions revoked.`);
+                    // Fix 8: Log detallado interno sin fugar en req/res
+                    console.warn(`[SECURITY ALERT] Refresh token reuse detected. Revoking all active sessions for User ID: ${tokenData.user_id}`);
 
                     throw new Error('SESSION_REVOKED');
                 }
 
                 // Caso 3: Rotación Normal
-                // Fix 4: TokenService genera sin persistir; AuthService persiste
+                // Refrescamos metadatos de sesión (IP, User-Agent).
+                // Nota semántica: updateamos 'last_used_at' al insertar el sucesor, reflejando el momento 
+                // de la rotación más reciente de esta cadena de sesiones.
                 const { accessToken, refreshToken, refreshTokenHash: newHash, expiresAt } = tokenService.generateTokenPair(tokenData.user_id);
-                const insertId = await repo.saveRefreshToken(tokenData.user_id, newHash, expiresAt, client);
+                const insertId = await repo.saveRefreshToken(tokenData.user_id, newHash, expiresAt, client, context.ip, context.userAgent);
 
                 // Revoca el token originario indicando también cual fue su sucesor (replaced_by)
                 await repo.revokeRefreshToken(tokenData.id, insertId, client);
 
                 await client.query('COMMIT');
+                isTxActive = false;
+
                 return { accessToken, refreshToken };
 
             } catch (err) {
-                await client.query('ROLLBACK');
+                if (isTxActive) {
+                    await client.query('ROLLBACK');
+                    isTxActive = false;
+                }
                 throw err;
             } finally {
                 client.release();

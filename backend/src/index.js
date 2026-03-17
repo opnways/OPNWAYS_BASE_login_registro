@@ -13,8 +13,13 @@ const port = process.env.PORT || 3000;
 
 import { authConfig } from './features/auth/utils/authConfig.js';
 
-// Confiar en Reverse Proxies en Producción para Rate Limiting
-app.set('trust proxy', 1);
+// Confiar en Reverse Proxies en Producción de forma dinámica (Configurable vía Zod).
+// NOTA TÉCNICA: Solo activar TRUST_PROXY=true cuando la API se encuentra
+// detrás de un Reverse Proxy confiable (Nginx, ALB, etc.) que sobreescriba y sanee
+// la cabecera X-Forwarded-For para prevenir IP Spoofing por parte del cliente.
+if (authConfig.app.trustProxy) {
+    app.set('trust proxy', 1);
+}
 
 // Middleware
 // Endurecimiento explícito de headers HTTP con Helmet
@@ -44,11 +49,25 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
+    // Permitimos explícitamente X-Request-Id para evitar problemas de Preflight
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'x-request-id'],
+    // Exponer X-Request-Id al frontend
+    exposedHeaders: ['x-request-id']
 }));
-// Correlation ID Middleware para auditoría
+
+// Correlation ID Middleware para auditoría segura
 app.use((req, res, next) => {
-    req.id = req.headers['x-request-id'] || crypto.randomUUID();
+    // Validar el request ID si viene del cliente. Si no cumple formato estricto (UUID), se rechaza
+    // y se regenera uno propio. Esto evita Log Forging, Injection y cross-site tracing malicioso.
+    const incomingReqId = req.headers['x-request-id'];
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    if (incomingReqId && uuidRegex.test(incomingReqId)) {
+        req.id = incomingReqId;
+    } else {
+        req.id = crypto.randomUUID();
+    }
+
     res.setHeader('X-Request-Id', req.id);
     next();
 });
@@ -74,50 +93,81 @@ app.use('/api/auth', authRoutes);
 
 import { register } from './features/auth/utils/metrics.js';
 
+// Endpoint protegido para métricas con Autenticación Básica explícita.
 app.get('/metrics', async (req, res) => {
-    console.log('NODE_ENV:', process.env.NODE_ENV, 'IP:', req.ip);
-    // Bloquear acceso desde IPs que no sean loopback (127.0.0.1 / ::1) en producción.
-    // En desarrollo, permitir acceso para facilitar testing.
-    if (process.env.NODE_ENV === 'production') {
-        const clientIp = req.ip || req.socket?.remoteAddress || '';
-        const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1';
-
-        if (!isLoopback) {
-            return res.status(403).json({ success: false, data: null, error: 'Acceso denegado.' });
-        }
+    // Si la configuración no habilita explícitamente las métricas, devolvemos 404 en cualquier entorno.
+    if (process.env.METRICS_ENABLED !== 'true') {
+        return res.status(404).send('Not Found');
     }
 
-    // Si METRICS_PASSWORD está definido, exigir autenticación básica (en cualquier entorno).
+    const metricsUser = process.env.METRICS_USERNAME;
     const metricsPass = process.env.METRICS_PASSWORD;
-    if (metricsPass) {
-        const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
-        const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-        const metricsUser = process.env.METRICS_USER || 'admin';
 
-        if (login !== metricsUser || password !== metricsPass) {
-            res.set('WWW-Authenticate', 'Basic realm="metrics"');
-            return res.status(401).send('Authentication required.');
-        }
+    // A pesar de Zod, garantizamos un fail-close si por algún motivo bizarro los secretos están ausentes
+    if (!metricsUser || !metricsPass) {
+        return res.status(500).json({ error: 'Métricas habilitadas pero credenciales de acceso no configuradas.' });
+    }
+
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+
+    const providedUserBuffer = Buffer.from(login || '');
+    const providedPassBuffer = Buffer.from(password || '');
+    const expectedUserBuffer = Buffer.from(metricsUser);
+    const expectedPassBuffer = Buffer.from(metricsPass);
+
+    // Prevención contra Timing Attacks en validación de credenciales
+    let validUser = false;
+    let validPass = false;
+
+    if (providedUserBuffer.length === expectedUserBuffer.length) {
+        validUser = crypto.timingSafeEqual(providedUserBuffer, expectedUserBuffer);
+    }
+
+    if (providedPassBuffer.length === expectedPassBuffer.length) {
+        validPass = crypto.timingSafeEqual(providedPassBuffer, expectedPassBuffer);
+    }
+
+    if (!validUser || !validPass) {
+        res.set('WWW-Authenticate', 'Basic realm="metrics"');
+        return res.status(401).send('Authentication required.');
     }
 
     try {
         res.set('Content-Type', register.contentType);
         res.end(await register.metrics());
     } catch (err) {
-        res.status(500).end(err.message);
+        res.status(500).end('Error al recolectar métricas');
     }
 });
 
 import pool from './utils/db.js';
 
+// Liveness: El proceso Express corre y atiende peticiones
+app.get('/health/live', (req, res) => {
+    res.status(200).send('OK');
+});
+
+// Readiness: El sistema tiene base de datos operativa, que es estrictamente
+// requerida para el funcionamiento del servidor de Auth.
+app.get('/health/ready', async (req, res) => {
+    try {
+        await pool.query('SELECT 1');
+        res.status(200).send('OK');
+    } catch (err) {
+        console.error('Healthcheck DB Readiness failed:', err.message);
+        res.status(503).send('Not Ready');
+    }
+});
+
+// Alias legacy asumiendo comportamiento de 'ready'
 app.get('/health', async (req, res) => {
     try {
-        // Readiness check simple a BD
         await pool.query('SELECT 1');
-        res.success({ status: 'up', database: 'connected' });
+        res.status(200).send('OK');
     } catch (err) {
-        console.error('Healthcheck failed:', err.message);
-        res.status(503).json({ success: false, data: null, error: 'Servicio no disponible' });
+        console.error('Healthcheck DB Readiness failed:', err.message);
+        res.status(503).send('Not Ready');
     }
 });
 
@@ -136,6 +186,6 @@ app.use((err, req, res, next) => {
     res.error('Ocurrió un error interno del servidor.', 500);
 });
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
     console.log(`Backend listening at http://localhost:${port}`);
 });

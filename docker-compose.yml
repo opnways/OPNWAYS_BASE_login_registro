@@ -19,8 +19,8 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-auth_db}
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-secret_access}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-secret_refresh}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-super_secret_access_key_for_jwt_32_chars}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-super_secret_refresh_key_for_jwt_32_chars}
       PORT: 3000
       APP_NAME: ${APP_NAME:-Auth Starter}
       APP_URL: ${APP_URL:-http://localhost:5173}
@@ -53,7 +53,7 @@ services:
       context: ./frontend
     container_name: auth-starter-frontend
     ports:
-      - "5173:80"
+      - "80:80"
     environment:
       VITE_APP_NAME: ${VITE_APP_NAME:-Auth Starter}
       VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}

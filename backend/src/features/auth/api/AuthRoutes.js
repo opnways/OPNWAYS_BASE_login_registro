@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { generateCsrfToken, verifyCsrf } from '../utils/csrf.js';
 import { authCookies } from './authCookies.js';
 import { authConfig } from '../utils/authConfig.js';
+import { createEmailRateLimiter } from '../utils/rateLimiter.js';
+import { AuthRepository } from '../repository/AuthRepository.js';
 
 import {
     authRequestsTotal,
@@ -61,19 +63,26 @@ const createLimiter = (maxRequests) => rateLimit({
     legacyHeaders: false,
 });
 
-const loginLimiter = createLimiter(20);
-const forgotLimiter = createLimiter(5);
+// Limitadores de primera capa (solo IP)
+const loginIpLimiter = createLimiter(20);
+const forgotIpLimiter = createLimiter(5);
+const registerLimiter = createLimiter(10); // Register solo por IP para evitar enumeración y DoS
+
+// Limitadores de segunda capa (solo Email)
+const loginEmailLimiter = createEmailRateLimiter(5);
+const forgotEmailLimiter = createEmailRateLimiter(3);
+
+// Endpoints genéricos limitan solo por IP
 const resetLimiter = createLimiter(5);
 const refreshLimiter = createLimiter(60);
-const registerLimiter = createLimiter(10);
 
 
 const passwordSchema = z.string()
     .min(8, 'La contraseña debe tener al menos 8 caracteres')
     .max(128, 'La contraseña es demasiado larga') // Mitigar Hash DoS (Long Password DoS)
-    .regex(/[A-Z]/, 'La contraseña debe incluir al menos una mayúscula')
-    .regex(/[0-9]/, 'La contraseña debe incluir al menos un número')
-    .regex(/[^A-Za-z0-9]/, 'La contraseña debe incluir al menos un carácter especial');
+    .refine((val) => /[A-Z]/.test(val), 'La contraseña debe incluir al menos una mayúscula')
+    .refine((val) => /[0-9]/.test(val), 'La contraseña debe incluir al menos un número')
+    .refine((val) => /[^A-Za-z0-9]/.test(val), 'La contraseña debe incluir al menos un carácter especial');
 
 const registerSchema = z.object({
     email: z.string().trim().toLowerCase().email('Email inválido'),
@@ -116,7 +125,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     }
 });
 
-router.post('/login', loginLimiter, async (req, res) => {
+router.post('/login', loginIpLimiter, loginEmailLimiter, async (req, res) => {
     try {
         const result = loginSchema.safeParse(req.body);
         if (!result.success) {
@@ -124,14 +133,21 @@ router.post('/login', loginLimiter, async (req, res) => {
         }
 
         const { email, password } = result.data;
-        const { user, accessToken, refreshToken } = await AuthService.login(email, password);
+        const context = { ip: req.ip || req.socket.remoteAddress, userAgent: req.headers['user-agent'] };
+        const { user, accessToken, refreshToken } = await AuthService.login(email, password, context);
 
         authCookies.setSessionCookies(res, accessToken, refreshToken);
 
         res.success({ user });
+
+        // Limpieza oportunista, se ejecuta de forma asíncrona sin bloquear la petición principal
+        AuthRepository.cleanupExpiredTokens().catch(e => console.error('Error cleanup DB:', e));
+
     } catch (err) {
-        console.error('Login error:', err.message);
-        res.error(err.message, 401);
+        // Log minimalista que no expone email en texto claro ante intentos de escaneo/brute-force
+        console.error(`Login attempt failed from IP ${req.ip || req.socket.remoteAddress}`);
+        // Evita fugar si el usuario no existe. AuthService ya lanza 'Credenciales inválidas'.
+        res.error('Credenciales inválidas.', 401);
     }
 });
 
@@ -158,8 +174,9 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
             throw new Error('No se encontró token de refresco');
         }
 
+        const context = { ip: req.ip || req.socket.remoteAddress, userAgent: req.headers['user-agent'] };
         const hash = TokenService.hashToken(refreshToken);
-        const { accessToken, refreshToken: newRefreshToken } = await AuthService.refresh(hash);
+        const { accessToken, refreshToken: newRefreshToken } = await AuthService.refresh(hash, context);
 
         authCookies.setSessionCookies(res, accessToken, newRefreshToken);
 
@@ -167,9 +184,14 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
         authRefreshRevocationsTotal.inc({ reason: 'rotation' });
 
         res.success({ message: 'Token renovado exitosamente' });
+
+        // Limpieza oportunista, asíncrona (frecuencia natural con el refresco)
+        AuthRepository.cleanupExpiredTokens().catch(e => console.error('Error cleanup DB:', e));
+
     } catch (err) {
-        console.error('Refresh error:', err.message);
-        // Fix 8: Siempre mensaje genérico al cliente; detalles de seguridad quedan en el log
+        // En refresh, mantenemos el log genérico sin revelar token hashes
+        console.warn(`Refresh session failed from IP ${req.ip || req.socket.remoteAddress}`);
+        // Siempre mensaje genérico al cliente; detalles de seguridad quedan en el log
         res.error('Sesión inválida.', 401);
     }
 });
@@ -185,12 +207,13 @@ router.get('/me', async (req, res) => {
         const user = await AuthService.getMe(decoded.sub);
         res.success(user);
     } catch (err) {
-        // Silent fail for me endpoint to avoid log noise on checkSession
-        res.error(err.message, 401);
+        // Silent fail for me endpoint to avoid log noise on checkSession.
+        // Nunca exponer err.message al cliente para evitar enumeración y filtración.
+        res.error('No autenticado', 401);
     }
 });
 
-router.post('/forgot', forgotLimiter, async (req, res) => {
+router.post('/forgot', forgotIpLimiter, forgotEmailLimiter, async (req, res) => {
     try {
         const result = forgotSchema.safeParse(req.body);
         if (!result.success) {

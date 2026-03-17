@@ -1,7 +1,6 @@
 services:
   db:
     image: postgres:15-alpine
-    container_name: auth-starter-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER}
@@ -9,12 +8,17 @@ services:
       POSTGRES_DB: ${DB_NAME}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME} -h 127.0.0.1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   backend:
     build:
       context: ./backend
       target: production
-    container_name: auth-starter-backend
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
@@ -24,7 +28,7 @@ services:
       APP_NAME: ${APP_NAME}
       APP_URL: ${APP_URL}
       API_URL: ${API_URL}
-      FRONTEND_URL: ${APP_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
       COOKIE_NAME_ACCESS: ${COOKIE_NAME_ACCESS}
       COOKIE_NAME_REFRESH: ${COOKIE_NAME_REFRESH}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN}
@@ -44,24 +48,37 @@ services:
     expose:
       - "3000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/health || exit 1" ]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
 
   frontend:
     build:
       context: ./frontend
       target: production
-    container_name: auth-starter-frontend
+      args:
+        VITE_APP_NAME: ${VITE_APP_NAME}
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_AUTH_LOGIN_REDIRECT: ${VITE_AUTH_LOGIN_REDIRECT}
+        VITE_AUTH_LOGOUT_REDIRECT: ${VITE_AUTH_LOGOUT_REDIRECT}
+        VITE_DEFAULT_PUBLIC_ROUTE: ${VITE_DEFAULT_PUBLIC_ROUTE}
     restart: unless-stopped
-    environment:
-      VITE_APP_NAME: ${VITE_APP_NAME}
-      VITE_API_URL: ${VITE_API_URL}
-      VITE_AUTH_LOGIN_REDIRECT: ${VITE_AUTH_LOGIN_REDIRECT}
-      VITE_AUTH_LOGOUT_REDIRECT: ${VITE_AUTH_LOGOUT_REDIRECT}
-      VITE_DEFAULT_PUBLIC_ROUTE: ${VITE_DEFAULT_PUBLIC_ROUTE}
     expose:
       - "80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:80/ || exit 1" ]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
 volumes:
   postgres_data:

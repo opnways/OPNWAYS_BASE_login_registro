@@ -20,11 +20,13 @@ export const AuthRepository = {
         return res.rows[0];
     },
 
-    async saveRefreshToken(userId, tokenHash, expiresAt, client = null) {
+    // Higiene de sesiones mejorada con recolección opcional de IP y UA en nueva creación,
+    // y marcado de uso (last_used_at). Se requiere correr migración en /src/migrations/.
+    async saveRefreshToken(userId, tokenHash, expiresAt, client = null, ip = null, userAgent = null) {
         const executor = client || { query };
         const res = await executor.query(
-            'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3) RETURNING id',
-            [userId, tokenHash, expiresAt]
+            'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, created_ip, user_agent, last_used_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id',
+            [userId, tokenHash, expiresAt, ip, userAgent]
         );
         return res.rows[0].id;
     },
@@ -101,5 +103,20 @@ export const AuthRepository = {
         // Suggested Index: CREATE INDEX idx_refresh_tokens_active ON refresh_tokens (revoked_at, expires_at);
         const res = await query('SELECT COUNT(*) FROM refresh_tokens WHERE revoked_at IS NULL AND expires_at > NOW()');
         return parseInt(res.rows[0].count, 10) || 0;
+    },
+
+    async cleanupExpiredTokens(client = null) {
+        const executor = client || { query };
+        // Limpieza oportunista: Elimina físicamente tokens caducados hace más de 7 días
+        // para mantener la tabla limpia sin necesidad de un cron.
+        // También limpia reset tokens muy antiguos.
+        await executor.query(`
+            DELETE FROM refresh_tokens
+            WHERE expires_at < NOW() - INTERVAL '7 days';
+        `);
+        await executor.query(`
+            DELETE FROM password_reset_tokens
+            WHERE expires_at < NOW() - INTERVAL '7 days';
+        `);
     }
 };
