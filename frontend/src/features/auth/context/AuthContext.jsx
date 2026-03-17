@@ -23,7 +23,7 @@ export function AuthProvider({ children }) {
     const checkSession = async () => {
         try {
             const response = await authClient.getMe();
-            if (response.success) {
+            if (response && response.success) {
                 setUser(response.data);
             }
         } catch (err) {
@@ -32,9 +32,9 @@ export function AuthProvider({ children }) {
             if (status === 401 || status === 403 || err.message?.includes('401') || err.message?.includes('403')) {
                 try {
                     const refreshResponse = await authClient.refresh();
-                    if (refreshResponse.success) {
+                    if (refreshResponse && refreshResponse.success) {
                         const retryMe = await authClient.getMe();
-                        if (retryMe.success) setUser(retryMe.data);
+                        if (retryMe && retryMe.success) setUser(retryMe.data);
                     }
                 } catch (refreshErr) {
                     setUser(null); // Truly unauthenticated
