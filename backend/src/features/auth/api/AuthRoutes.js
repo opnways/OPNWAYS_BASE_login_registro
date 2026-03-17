@@ -58,10 +58,6 @@ router.use((req, res, next) => {
 const createLimiter = (maxRequests) => rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: maxRequests,
-    keyGenerator: (req) => {
-        const ip = req.ip || req.socket.remoteAddress;
-        return ip;
-    },
     message: { success: false, data: null, error: 'Demasiadas solicitudes, por favor inténtalo de nuevo más tarde.' },
     standardHeaders: true,
     legacyHeaders: false,
