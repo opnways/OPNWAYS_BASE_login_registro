@@ -197,6 +197,12 @@ router.post('/refresh', refreshLimiter, verifyCsrf, async (req, res) => {
 });
 
 router.get('/me', async (req, res) => {
+    // Cabeceras anti-caché obligatorias para evitar 304 Not Modified
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+
     try {
         const token = req.cookies[authConfig.cookies.accessTokenName];
         if (!token) throw new Error('No autenticado');
