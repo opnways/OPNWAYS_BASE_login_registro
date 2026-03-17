@@ -86,7 +86,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50kb' }));
 app.use(express.urlencoded({ extended: false, limit: '50kb' }));
 app.use(cookieParser());
-
+app.disable('etag');
 // Routes (Screaming Architecture: features/auth)
 import authRoutes from './features/auth/api/AuthRoutes.js';
 app.use('/api/auth', authRoutes);
