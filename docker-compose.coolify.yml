@@ -14,6 +14,11 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      default:
+      shared-pgadmin-network:
+        aliases:
+          - ${PGADMIN_DB_ALIAS}
 
   backend:
     build:
@@ -82,3 +87,8 @@ services:
 
 volumes:
   postgres_data:
+
+
+networks:
+  shared-pgadmin-network:
+    external: true
